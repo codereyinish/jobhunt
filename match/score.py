@@ -75,4 +75,9 @@ def score_job(job: dict, cfg: dict) -> tuple[int, str | None]:
     title_hits = sum(1 for k in tiers[tier]["keywords"] if k.lower() in title)
     desc_hits = sum(1 for k in tiers[tier]["keywords"] if k.lower() in desc)
     score = weight + title_hits * 8 + min(desc_hits, 5) * 2
-    return int(min(score, 150)), tier
+
+    for k in cfg.get("boost_title_keywords", []):
+        if k.lower() in title:
+            score += cfg.get("boost_amount", 40)
+            break
+    return int(min(score, 200)), tier

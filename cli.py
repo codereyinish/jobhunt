@@ -159,6 +159,97 @@ def cmd_show(args):
     print((r["description"] or "")[:3500])
 
 
+def _fetch_favorite(entry: dict) -> list[dict]:
+    from .sourcing import ashby, greenhouse, lever, workday
+    v = entry["vendor"]
+    if v == "greenhouse":
+        return greenhouse.fetch(entry["token"])
+    if v == "lever":
+        return lever.fetch(entry["token"])
+    if v == "ashby":
+        return ashby.fetch(entry["token"])
+    if v == "workday":
+        return workday.fetch(entry)
+    return []
+
+
+def cmd_add(args):
+    """Add a company to your favorites (ATS search list) from its careers URL."""
+    from .core.favorites import add_favorite, parse_company_url
+
+    entry = parse_company_url(args.url)
+    if not entry:
+        print("Couldn't detect an ATS from that URL.\n"
+              "Supported: Greenhouse, Lever, Ashby, Workday careers links.")
+        return
+    label = entry.get("token") or entry.get("tenant")
+    state = add_favorite(entry)
+    print(f"{entry['vendor']}/{label}: {state} to favorites.")
+
+    raw = _fetch_favorite(entry)
+    if not raw:
+        print("  (no public postings found — token may be wrong or board is empty.)")
+        return
+    new = _ingest(raw, settings())
+    print(f"  fetched {len(raw)} postings, {len(new)} match your filters and were added.")
+
+
+def cmd_rank(args):
+    """Rank stored jobs against a plain-English preference via the claude CLI."""
+    from .match.llm import claude_available, rank
+
+    if not claude_available():
+        print("The `claude` CLI isn't on PATH — install Claude Code to use rank.")
+        return
+
+    with db.connect() as conn:
+        rows = conn.execute(
+            "SELECT id, title, company, location FROM jobs WHERE score >= ? "
+            "ORDER BY score DESC LIMIT ?", [args.min_score, args.limit],
+        ).fetchall()
+    jobs = [dict(r) for r in rows]
+    if not jobs:
+        print("No jobs to rank — run `source` first.")
+        return
+
+    print(f"Ranking {len(jobs)} jobs against your preference (claude)…")
+    fits = rank(args.preference, jobs)
+    if not fits:
+        print("No scores returned. Try rephrasing the preference.")
+        return
+    with db.connect() as conn:
+        for jid, f in fits.items():
+            conn.execute("UPDATE jobs SET fit = ? WHERE id = ?", [f, jid])
+        top = conn.execute(
+            "SELECT company, title, fit FROM jobs WHERE fit IS NOT NULL "
+            "ORDER BY fit DESC LIMIT 25").fetchall()
+    print(f"Scored {len(fits)} jobs. Top matches:\n")
+    for r in top:
+        print(f"  fit {r['fit']:>3}  {(r['company'] or '')[:20]:<20} {(r['title'] or '')[:46]}")
+
+
+def cmd_rescore(args):
+    """Re-apply the current filters/scoring to everything already stored, with
+    no re-fetching. Run this after editing settings.yaml to see the effect."""
+    cfg = settings()
+    min_score = cfg["sourcing"]["min_score"]
+    updated = removed = 0
+    with db.connect() as conn:
+        for r in conn.execute("SELECT * FROM jobs").fetchall():
+            job = {"title": r["title"], "description": r["description"],
+                   "location": r["location"], "remote": r["remote"]}
+            passes, _ = location_ok(job, cfg)
+            score, tier = score_job(job, cfg)
+            if not passes or score < min_score:
+                conn.execute("DELETE FROM jobs WHERE id = ?", [r["id"]])
+                removed += 1
+            else:
+                conn.execute("UPDATE jobs SET score = ?, tier = ? WHERE id = ?",
+                             [score, tier, r["id"]])
+                updated += 1
+    print(f"Rescored {updated} kept, {removed} removed under current filters.")
+
+
 def cmd_check(args):
     """Paste a job URL -> extract it, score it against your tiers, and resolve
     the real ATS apply path."""
@@ -265,6 +356,19 @@ def main():
     ck.add_argument("url")
     ck.add_argument("--save", action="store_true", help="store it if it fits")
     ck.set_defaults(fn=cmd_check)
+
+    rs = sub.add_parser("rescore", help="re-apply filters to stored jobs (after editing settings)")
+    rs.set_defaults(fn=cmd_rescore)
+
+    rk = sub.add_parser("rank", help="rank jobs by a plain-English preference (claude)")
+    rk.add_argument("preference", help="what you want, in plain English")
+    rk.add_argument("--min-score", type=int, default=40)
+    rk.add_argument("--limit", type=int, default=60)
+    rk.set_defaults(fn=cmd_rank)
+
+    ad = sub.add_parser("add", help="add a company to favorites from its careers URL")
+    ad.add_argument("url")
+    ad.set_defaults(fn=cmd_add)
 
     args = ap.parse_args()
     args.fn(args)

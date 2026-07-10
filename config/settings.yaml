@@ -45,18 +45,29 @@ tiers:
 require_role_keywords: [engineer, developer, scientist, researcher, "machine learning",
                         "applied ai", programmer, software, sde, swe]
 
-# Seniority we're NOT targeting (early-career). Any title containing one of
-# these is dropped. Delete entries here as you gain experience.
-exclude_seniority: [staff, principal, director, "vp ", "vice president", "head of",
-                    manager, " lead", "lead ", distinguished, fellow]
+# Seniority we're NOT targeting (early-career — you want junior/entry/mid).
+# Any title containing one of these is dropped. Delete entries as you level up.
+exclude_seniority: [senior, "sr.", "sr ", staff, principal, director, "vp ",
+                    "vice president", "head of", manager, " lead", "lead ",
+                    distinguished, fellow, "iii", " iv", " v ", "10+", "8+ years"]
+
+# Early-career titles to BOOST to the top of the list (you want these first).
+boost_title_keywords: [junior, "jr.", "jr ", "new grad", "new graduate", "entry level",
+                       "entry-level", associate, "university grad", "early career",
+                       "early-career", "recent graduate", "grad "]
+boost_amount: 40
 
 # Other titles we almost never want — drop outright (case-insensitive substring).
+# Includes non-software engineering disciplines so "Mechanical Engineer" etc. don't leak.
 exclude_title_keywords: [sales, marketing, recruiter, "account executive", "customer success",
                          "solutions architect", "developer relations", "developer advocate",
                          evangelist, "support engineer", "security operations",
                          "business systems", "program manager", "product manager",
                          "product operations", designer, "technical specialist",
-                         "trust and safety", legal, "people ", unpaid]
+                         "trust and safety", legal, "people ", unpaid,
+                         mechanical, electrical, civil, hardware, biomedical, chemical,
+                         aerospace, "field engineer", manufacturing, "process engineer",
+                         "validation engineer", "systems engineer", "network engineer"]
 
 sourcing:
   min_score: 30               # discard anything below this after scoring
@@ -77,6 +88,10 @@ jobspy:
     - applied ai engineer
     - software engineer
     - backend engineer
+    - junior software engineer
+    - new grad software engineer
+    - entry level machine learning
+    - associate software engineer
   locations:
     - New York, NY
     - San Francisco, CA

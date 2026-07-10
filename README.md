@@ -104,7 +104,20 @@ jh list --new-hours 24
 jh show 12          # full job detail
 jh classify         # how many jobs are auto-applyable
 jh check <job-url>  # paste any job link: does it fit? where do I apply? (--save to keep)
+jh add <careers-url># add a company to favorites (Greenhouse/Lever/Ashby/Workday) + fetch it
+jh rank "..."       # rank jobs by a plain-English preference (uses the claude CLI)
+jh rescore          # re-apply filters after editing settings (no re-fetch)
 ```
+
+## Web UI
+
+```bash
+.venv/bin/python -m jobhunt.web     # → http://127.0.0.1:8765
+```
+
+A local dark dashboard: a job table with filters + scores, a **paste-a-link check**,
+a **♥ button** to add companies to favorites, and a **plain-English preference box**
+that ranks jobs by semantic fit via the `claude` CLI (free — no API key).
 
 ## Configure (all editable)
 

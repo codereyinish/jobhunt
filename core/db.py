@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     fetched_at   TEXT DEFAULT CURRENT_TIMESTAMP,
     score        INTEGER DEFAULT 0,
     tier         TEXT,
+    fit          INTEGER,               -- 0-100 semantic fit vs your preference (LLM)
     status       TEXT DEFAULT 'new',    -- new | drafted | applied | skipped
     UNIQUE(source, source_id)
 );
@@ -49,6 +50,10 @@ def connect():
     conn.row_factory = sqlite3.Row
     try:
         conn.executescript(SCHEMA)
+        try:                              # migrate older DBs
+            conn.execute("ALTER TABLE jobs ADD COLUMN fit INTEGER")
+        except sqlite3.OperationalError:
+            pass
         yield conn
         conn.commit()
     finally:

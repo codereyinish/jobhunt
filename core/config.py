@@ -25,4 +25,25 @@ def profile() -> dict:
 
 
 def companies() -> dict:
-    return _load("companies.yaml")
+    """Curated companies.yaml merged with the user's favorites.yaml (added via
+    `jobhunt add`). Not cached, so newly-added favorites take effect at once."""
+    base = _load("companies.yaml")
+    fav_path = CONFIG_DIR / "favorites.yaml"
+    fav = {}
+    if fav_path.exists():
+        with open(fav_path) as f:
+            fav = yaml.safe_load(f) or {}
+
+    merged: dict = {}
+    for key in set(base) | set(fav):
+        a, b = base.get(key) or [], fav.get(key) or []
+        if key == "workday":
+            seen, out = set(), []
+            for w in a + b:
+                h = w.get("host") if isinstance(w, dict) else w
+                if h and h not in seen:
+                    seen.add(h); out.append(w)
+            merged[key] = out
+        else:
+            merged[key] = list(dict.fromkeys(a + b))
+    return merged
