@@ -66,7 +66,7 @@ button:hover{filter:brightness(1.07)}
 table{width:100%;border-collapse:collapse}
 th{text-align:left;color:var(--muted);font-size:11px;text-transform:uppercase;
   letter-spacing:.06em;font-weight:600;padding:0 12px 11px}
-td{padding:13px 12px;border-top:1px solid var(--line);vertical-align:middle}
+td{padding:11px 10px;border-top:1px solid var(--line);vertical-align:middle}
 tr:hover td{background:var(--panel2)}
 td.num{color:var(--faint);width:30px;font-variant-numeric:tabular-nums}
 .score{font-variant-numeric:tabular-nums;font-weight:700;width:44px}
@@ -80,8 +80,9 @@ tr:hover .love{opacity:.55}
 .love:hover{color:#ff5a7a}
 .love:active{transform:scale(1.3)}
 .love.on{opacity:1;color:#ff5a7a}
-.role{color:var(--text)}
-.loc{color:var(--muted);font-size:13px;white-space:nowrap}
+.role{color:var(--text);max-width:300px}
+.loc{color:var(--muted);font-size:13px;max-width:180px}
+td a{white-space:nowrap}
 .pill{display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;
   font-weight:600;border:1px solid transparent}
 .pill.auto{color:var(--green);background:rgba(84,192,122,.10);border-color:rgba(84,192,122,.28)}
@@ -89,14 +90,23 @@ tr:hover .love{opacity:.55}
 .pill.manual{color:var(--muted);background:rgba(123,132,148,.08);border-color:var(--line2)}
 .empty{color:var(--muted);padding:36px 0;text-align:center}
 
-.heart-btn{position:fixed;top:22px;right:26px;z-index:20;width:42px;height:42px;
-  border-radius:50%;background:var(--panel);border:1px solid var(--line2);
-  display:flex;align-items:center;justify-content:center;cursor:pointer;
-  color:var(--accent);font-size:18px;transition:border-color .15s, background .15s}
-.heart-btn:hover{border-color:var(--accent);background:var(--panel2)}
+.toolbar{position:fixed;top:20px;right:24px;z-index:20;display:flex;gap:10px;align-items:center}
+.tool-btn{background:var(--panel);border:1px solid var(--line2);border-radius:999px;
+  padding:9px 15px;font-size:13px;font-weight:600;color:var(--text);cursor:pointer;
+  display:flex;align-items:center;gap:6px;transition:border-color .15s, background .15s}
+.tool-btn:hover{border-color:var(--accent);background:var(--panel2)}
+.heart-btn{width:42px;height:42px;border-radius:50%;background:var(--panel);
+  border:1px solid var(--line2);display:flex;align-items:center;justify-content:center;
+  cursor:pointer;color:#ff5a7a;font-size:18px;transition:border-color .15s, background .15s}
+.heart-btn:hover{border-color:#ff5a7a;background:var(--panel2)}
 .overlay{position:fixed;inset:0;background:rgba(4,6,10,.66);backdrop-filter:blur(2px);
   display:none;align-items:flex-start;justify-content:center;z-index:30;padding-top:13vh}
-#favtoggle:checked ~ .overlay{display:flex}
+#favtoggle:checked ~ .fav-ov{display:flex}
+#preftoggle:checked ~ .pref-ov{display:flex}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{background:var(--panel2);border:1px solid var(--line2);border-radius:999px;
+  padding:6px 8px 6px 13px;font-size:13px;font-weight:600;display:flex;align-items:center;gap:9px}
+.chip .love{opacity:1;margin:0;color:#ff5a7a;font-size:14px}
 .modal{background:var(--panel);border:1px solid var(--line2);border-radius:16px;
   padding:22px 24px;width:min(560px,92vw);position:relative;
   box-shadow:0 24px 60px rgba(0,0,0,.5)}
@@ -110,13 +120,34 @@ tr:hover .love{opacity:.55}
 _TIER_LABEL = {"voice_speech": "voice", "ai_ml": "ai/ml", "swe_backend": "swe"}
 
 
-def _fav_modal() -> str:
+def _toolbar() -> str:
     return (
         "<input type=checkbox id=favtoggle hidden>"
-        "<label for=favtoggle class=heart-btn title='Add a company to favorites'>&#9829;</label>"
-        "<div class=overlay><div class=modal>"
+        "<input type=checkbox id=preftoggle hidden>"
+        "<div class=toolbar>"
+        "<label for=preftoggle class=tool-btn>&#10022;&nbsp; Preference</label>"
+        "<label for=favtoggle class=heart-btn title='Loved companies'>&#9829;</label>"
+        "</div>"
+    )
+
+
+def _fav_modal() -> str:
+    from .core.favorites import loved_companies
+    loved = sorted(loved_companies())
+    if loved:
+        chips = "".join(
+            f"<span class=chip>{_e(c)}<span class='love on chip-x' data-c=\"{_e(c)}\" "
+            f"onclick='love(this)'>&#9829;</span></span>" for c in loved)
+        loved_html = f"<div class=chips>{chips}</div>"
+    else:
+        loved_html = ("<div class=hint>No loved companies yet — tap the ♥ next to any "
+                      "company in the list below.</div>")
+    return (
+        "<div class='overlay fav-ov'><div class=modal>"
         "<label for=favtoggle class=modal-close>&times;</label>"
-        "<div class=modal-h>Add a company to favorites</div>"
+        "<div class=modal-h>Loved companies</div>"
+        f"{loved_html}"
+        "<div class=modal-h style='margin-top:22px'>Add a company by link</div>"
         "<form class=col method=post action='/add'>"
         "<input class=url type=text name=url style='width:100%' "
         "placeholder='Paste a careers link — Greenhouse / Lever / Ashby / Workday…'>"
@@ -126,11 +157,32 @@ def _fav_modal() -> str:
     )
 
 
+def _pref_modal() -> str:
+    from .core.favorites import load_preference
+    pref = load_preference()
+    ph = ("Describe what you want in plain English — e.g. “early-career engineer, "
+          "need visa sponsorship, love voice / speech AI but open to backend, no senior "
+          "roles, no internships, NYC or remote”")
+    return (
+        "<div class='overlay pref-ov'><div class=modal>"
+        "<label for=preftoggle class=modal-close>&times;</label>"
+        "<div class=modal-h>Rank by preference &nbsp;·&nbsp; AI</div>"
+        "<form class=col method=post action='/rank'>"
+        f"<textarea name=preference rows=3 style='width:100%' placeholder=\"{_e(ph)}\">{_e(pref)}</textarea>"
+        "<input type=hidden name=tier value=''>"
+        "<input type=hidden name=min_score value=40>"
+        "<div class=row><button type=submit>Rank with Claude</button>"
+        "<span class=hint>uses your Claude Pro CLI · free · may take ~30s</span></div>"
+        "</form></div></div>"
+    )
+
+
 def _page(body: str) -> str:
     return (f"<!doctype html><html lang=en><head><meta charset=utf-8>"
             f"<meta name=viewport content='width=device-width,initial-scale=1'>"
             f"<title>jobhunt</title><style>{CSS}</style></head>"
-            f"<body>{_fav_modal()}<div class=wrap>{body}</div>{_JS}</body></html>")
+            f"<body>{_toolbar()}{_fav_modal()}{_pref_modal()}"
+            f"<div class=wrap>{body}</div>{_JS}</body></html>")
 
 
 _JS = """<script>
@@ -167,22 +219,6 @@ def _check_form(url: str = "") -> str:
         f"<input class=url type=text name=url placeholder='Paste a job posting URL…' value='{_e(url)}'>"
         "<label class=chk><input type=checkbox name=save value=1> save if it fits</label>"
         "<button type=submit>Check</button>"
-        "</form></div>"
-    )
-
-
-def _pref_panel(tier: str, min_score: int, preference: str = "") -> str:
-    ph = ("Describe what you want in plain English — e.g. “early-career engineer, "
-          "need visa sponsorship, love voice / speech AI but open to backend, no senior "
-          "roles, NYC or remote”")
-    return (
-        "<div class=panel><h2>Rank by preference &nbsp;·&nbsp; AI</h2>"
-        "<form class=col method=post action='/rank'>"
-        f"<textarea name=preference rows=2 placeholder=\"{_e(ph)}\">{_e(preference)}</textarea>"
-        f"<input type=hidden name=tier value='{_e(tier)}'>"
-        f"<input type=hidden name=min_score value='{min_score}'>"
-        "<div class=row><button type=submit>Rank with Claude</button>"
-        "<span class=hint>uses your Claude Pro CLI · free · may take ~30s</span></div>"
         "</form></div>"
     )
 
@@ -267,7 +303,6 @@ def _render(tier: str, min_score: int, fresh: bool, sort: str,
         _header(total, fresh_n)
         + notice_html
         + _check_form()
-        + _pref_panel(tier, min_score, preference)
         + _filters(tier, min_score, fresh, sort)
         + "<div class=panel>" + _table(rows, sort == "fit", loved) + "</div>"
     )
