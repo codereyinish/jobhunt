@@ -16,14 +16,74 @@ Paid auto-apply services charge a monthly fee to do what is mostly public data
 plus a browser script. This does the same thing locally, for free, and you can
 read and extend every line.
 
-## How it works
+## Architecture
+
+One pass, top to bottom: **sources → filter → store → notify → browse/classify.**
 
 ```
-DISCOVER   ATS endpoints (by company)  +  JobSpy / Indeed (by keyword)
-FILTER     US location + role tiers (edit to your field) + drop senior/PM/etc
-STORE      SQLite, deduped, freshness-tracked
-NOTIFY     desktop ping on fresh, high-score matches
-CLASSIFY   which jobs land on an auto-applyable ATS form
+        ┌──────────────────── SOURCES (find jobs) ────────────────────┐
+BY COMPANY ─►  Greenhouse   Lever   Ashby   Workday    (public ATS endpoint per company)
+(you list who)              sourcing/{greenhouse,lever,ashby,workday}.py
+
+BY KEYWORD ─►  JobSpy → Indeed + Google     RemoteOK feed     Adzuna (optional, free key)
+(you list role)  sourcing/jobspy_src.py      remoteok.py        adzuna.py
+                                    │
+                                    ▼
+                        raw postings  (one merged, normalized list)
+                                    │
+        ┌───────────────────────────┼───────────────────────────┐
+        ▼                           ▼                           ▼
+1. LOCATION FILTER          2. SCORE + TIER              3. DROP if
+   US city/state/remote?       title-driven tiers            not US, or
+   match/score.py              (edit to YOUR field)          score < min_score
+   location_ok()               score_job()
+                                    │
+                                    ▼
+                    4. STORE → SQLite   (core/db.py · data/jobs.db)
+                       dedupe by (source, source_id); new rows stamped first_seen
+                                    │
+                                    ▼
+                    5. NOTIFY (poll only) — new job & score ≥ notify_min → desktop ping
+                                    │
+                                    ▼
+                    6. BROWSE / CLASSIFY   (cli.py)
+                       list · show · classify → auto-fillable ATS?  (apply/router.py)
+```
+
+### The stages
+
+1. **Fetch** — every source returns the same normalized dict (`source, source_id,
+   company, title, location, url, description, …`). ATS sources ask *by company*
+   (`ashby/Deepgram → 65 jobs`); keyword sources ask *by term × location*.
+2. **Location filter** (`match/score.py → location_ok`) — keep US city/state +
+   US-remote, drop ex-US.
+3. **Score + tier** (`score_job`) — drop senior/PM/sales titles, require a role
+   word, then assign a tier by title. Default tiers `voice_speech → ai_ml →
+   swe_backend` are just an example — **edit them to your field** in
+   `settings.yaml`. Anything under `min_score` is discarded.
+4. **Store** (`core/db.py`) — upsert into SQLite, deduped by `(source, source_id)`
+   so re-runs only add genuinely new jobs; each new row gets a `first_seen` stamp.
+5. **Notify** (`poll` only) — a new job scoring ≥ `notify_min_score` fires a
+   desktop notification.
+6. **Browse / classify** — `list` (ranked), `show` (full JD), `classify` (which
+   jobs land on an auto-fillable ATS form vs. custom sites).
+
+### 24/7 loop
+
+`scheduler/install.sh` installs a launchd agent that runs `poll` every 20 minutes —
+stages 1–5 automatically, pinging you when a fresh high-score match lands.
+
+### Codebase map
+
+```
+cli.py               commands: source · poll · list · show · classify
+core/config.py       loads the YAML configs
+core/db.py           SQLite schema + upsert/dedupe
+sourcing/            one file per source (base.py = shared HTTP + HTML strip)
+match/score.py       location filter + tiered scorer
+apply/router.py      classify a job URL → auto / confirm / manual
+config/*.yaml        settings (filters/tiers) · companies (ATS list) · profile (you)
+scheduler/install.sh macOS 24/7 poller
 ```
 
 ## Quickstart
