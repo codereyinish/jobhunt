@@ -1,0 +1,41 @@
+# ATS board tokens to scan. Invalid tokens are skipped silently, so it's safe
+# to add speculative ones — run `source` and watch which return jobs.
+#
+#   Greenhouse:  https://boards-api.greenhouse.io/v1/boards/<token>/jobs
+#   Lever:       https://api.lever.co/v0/postings/<token>?mode=json
+#   Ashby:       https://api.ashbyhq.com/posting-api/job-board/<Name>   (case-sensitive!)
+#
+# To find a company's token: open its careers page and look at the URL / network
+# calls (boards.greenhouse.io/<t>, jobs.lever.co/<t>, jobs.ashbyhq.com/<Name>).
+
+greenhouse:              # confirmed-working tokens
+  - assemblyai
+  - scaleai
+  - databricks
+  - anthropic
+
+lever:                   # add real tokens as you find them (jobs.lever.co/<token>)
+  - retellai
+
+ashby:                   # ⭐ where the voice/AI startups live — confirmed working
+  - Cartesia
+  - Deepgram
+  - Suno
+  - Vapi
+  - Sesame
+  - ElevenLabs
+  - Cohere
+  - OpenAI
+  - Perplexity
+  - Sierra
+  - Runway
+  - Ramp
+  - Notion
+  - Linear
+  - Assembly
+
+workday:                 # each needs host + tenant + site (from the careers URL:
+                         # https://<host>/en-US/<site>/...  host starts with <tenant>)
+  - host: tiaa.wd1.myworkdayjobs.com
+    tenant: tiaa
+    site: Search

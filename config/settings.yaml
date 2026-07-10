@@ -1,0 +1,100 @@
+# ---------------------------------------------------------------------------
+# jobhunt — sourcing + matching config. Everything here is meant to be edited.
+# ---------------------------------------------------------------------------
+
+locations:
+  require_us: true            # drop jobs clearly outside the US
+  allow_remote_us: true       # keep US / North-America remote roles
+  # A job passes the location filter if its location text mentions one of these
+  # cities/states, OR it's a US remote role (when allow_remote_us is true).
+  allowed_cities:
+    - New York
+    - Brooklyn
+    - Manhattan
+    - Jersey City
+    - San Francisco
+    - Bay Area
+    - Palo Alto
+    - Mountain View
+    - Sunnyvale
+    - San Jose
+    - Los Angeles
+    - Austin
+    - Seattle
+    - Boston
+  allowed_states: [NY, NJ, CA, TX, WA, MA]
+
+# Tiered keyword matching. A job's tier = the highest-priority ring it hits.
+# You target AI first, voice/speech/transcription sharpest, SWE/backend as floor.
+tiers:
+  voice_speech:               # tier 1 — sharpest focus, ranked highest
+    weight: 100
+    keywords: [speech, voice, asr, transcription, transcribe, audio, "text-to-speech", tts,
+               wake word, speaker, diarization, phonetics, whisper, acoustic, "signal processing"]
+  ai_ml:                      # tier 2
+    weight: 60
+    keywords: ["machine learning", "ml engineer", "ai engineer", "deep learning", nlp, llm,
+               "computer vision", mlops, "applied scientist", "research engineer", pytorch, tensorflow]
+  swe_backend:                # tier 3 — baseline
+    weight: 30
+    keywords: [backend, "software engineer", "full stack", fullstack, python, fastapi,
+               distributed, microservices, api, platform, infrastructure]
+
+# Title MUST contain one of these role words to survive (keeps it to eng/DS/
+# research roles, drops PM/design/ops/sales). Empty list = disabled.
+require_role_keywords: [engineer, developer, scientist, researcher, "machine learning",
+                        "applied ai", programmer, software, sde, swe]
+
+# Seniority we're NOT targeting (early-career). Any title containing one of
+# these is dropped. Delete entries here as you gain experience.
+exclude_seniority: [staff, principal, director, "vp ", "vice president", "head of",
+                    manager, " lead", "lead ", distinguished, fellow]
+
+# Other titles we almost never want — drop outright (case-insensitive substring).
+exclude_title_keywords: [sales, marketing, recruiter, "account executive", "customer success",
+                         "solutions architect", "developer relations", "developer advocate",
+                         evangelist, "support engineer", "security operations",
+                         "business systems", "program manager", "product manager",
+                         "product operations", designer, "technical specialist",
+                         "trust and safety", legal, "people ", unpaid]
+
+sourcing:
+  min_score: 30               # discard anything below this after scoring
+  max_description_chars: 6000 # truncate long JDs before storing / LLM
+  notify_min_score: 60        # `poll` pings you only for new jobs >= this
+
+# JobSpy: the free LinkedIn/Indeed/Google/ZipRecruiter firehose. Indeed scrapes
+# cleanly; LinkedIn rate-limits, so add it only if you want and poll it less.
+jobspy:
+  enabled: true
+  sites: [indeed, google]     # add: linkedin, zip_recruiter, glassdoor (linkedin rate-limits)
+  hours_old: 72               # FRESHNESS DIAL — only jobs posted within N hours
+  results_wanted: 25
+  country_indeed: USA
+  search_terms:
+    - machine learning engineer
+    - speech recognition engineer
+    - applied ai engineer
+    - software engineer
+    - backend engineer
+  locations:
+    - New York, NY
+    - San Francisco, CA
+    - Austin, TX
+    - Seattle, WA
+    - Remote
+
+# Adzuna: official keyword-based API. Free but needs a free key (no card) from
+# developer.adzuna.com. Leave app_id/app_key blank to skip it.
+adzuna:
+  app_id: ""
+  app_key: ""
+  country: us
+  results_per_page: 50
+  max_days_old: 7             # freshness — only jobs posted within N days
+  search_terms:
+    - machine learning engineer
+    - speech recognition engineer
+    - software engineer
+    - backend engineer
+  locations: [New York, San Francisco, Austin, Seattle, Remote]

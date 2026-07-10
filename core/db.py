@@ -1,0 +1,75 @@
+from __future__ import annotations
+
+import sqlite3
+from contextlib import contextmanager
+
+from .config import DATA_DIR
+
+DB_PATH = DATA_DIR / "jobs.db"
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS jobs (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    source       TEXT NOT NULL,
+    source_id    TEXT NOT NULL,
+    company      TEXT,
+    title        TEXT,
+    location     TEXT,
+    remote       INTEGER DEFAULT 0,
+    url          TEXT,
+    description  TEXT,
+    posted_at    TEXT,
+    fetched_at   TEXT DEFAULT CURRENT_TIMESTAMP,
+    score        INTEGER DEFAULT 0,
+    tier         TEXT,
+    status       TEXT DEFAULT 'new',    -- new | drafted | applied | skipped
+    UNIQUE(source, source_id)
+);
+
+CREATE TABLE IF NOT EXISTS applications (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    job_id       INTEGER NOT NULL REFERENCES jobs(id),
+    status       TEXT DEFAULT 'draft',  -- draft | submitted | failed
+    cover_letter TEXT,
+    answers      TEXT,
+    created_at   TEXT DEFAULT CURRENT_TIMESTAMP,
+    submitted_at TEXT,
+    notes        TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
+CREATE INDEX IF NOT EXISTS idx_jobs_score  ON jobs(score);
+"""
+
+
+@contextmanager
+def connect():
+    DATA_DIR.mkdir(exist_ok=True)
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        conn.executescript(SCHEMA)
+        yield conn
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def upsert_job(conn, job: dict) -> str:
+    """Insert a job, ignoring duplicates by (source, source_id).
+
+    Returns 'inserted' for a new row, 'skipped' if it already existed.
+    """
+    cur = conn.execute(
+        """INSERT OR IGNORE INTO jobs
+           (source, source_id, company, title, location, remote, url,
+            description, posted_at, score, tier, status)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+        (
+            job["source"], job["source_id"], job.get("company"), job.get("title"),
+            job.get("location"), int(job.get("remote", 0)), job.get("url"),
+            job.get("description"), job.get("posted_at"), int(job.get("score", 0)),
+            job.get("tier"), job.get("status", "new"),
+        ),
+    )
+    return "inserted" if cur.rowcount else "skipped"

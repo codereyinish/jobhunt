@@ -1,0 +1,27 @@
+# Copy this to config/profile.yaml and fill it in. Used for match scoring and
+# (soon) auto-filling applications. Your real profile.yaml is gitignored.
+
+name: ""
+email: ""
+phone: ""
+location: ""                  # e.g. "New York, NY"
+linkedin: ""
+github: ""
+portfolio: ""
+
+work_authorization:
+  status: ""                  # e.g. "US Citizen", "F-1 OPT", "H-1B", "Green Card"
+  needs_sponsorship: null     # true / false
+
+resume_path: ""               # absolute path to your resume PDF (for uploads)
+
+titles_seeking:
+  - Software Engineer
+
+skills:
+  - Python
+
+years_experience: 0
+
+summary: >
+  2-4 sentences on your background, strongest projects, and the role you want.
