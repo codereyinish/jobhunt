@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from urllib.parse import urlparse
 
@@ -9,6 +10,7 @@ from .config import CONFIG_DIR, DATA_DIR
 
 FAV_PATH = CONFIG_DIR / "favorites.yaml"        # machine-managed, gitignored
 PREF_PATH = DATA_DIR / "preference.txt"         # your saved rank preference
+LOVED_PATH = DATA_DIR / "loved.json"            # ❤ companies (by name)
 
 
 def parse_company_url(url: str) -> dict | None:
@@ -58,6 +60,28 @@ def add_favorite(entry: dict) -> str:
         fav[vendor].append(entry["token"])
     FAV_PATH.write_text(yaml.safe_dump(fav, sort_keys=True))
     return "added"
+
+
+def loved_companies() -> set[str]:
+    if LOVED_PATH.exists():
+        try:
+            return set(json.loads(LOVED_PATH.read_text()))
+        except ValueError:
+            return set()
+    return set()
+
+
+def toggle_loved(company: str) -> bool:
+    """Add/remove a company from the ❤ set. Returns True if now loved."""
+    company = (company or "").strip()
+    if not company:
+        return False
+    loved = loved_companies()
+    now = company not in loved
+    loved.add(company) if now else loved.discard(company)
+    DATA_DIR.mkdir(exist_ok=True)
+    LOVED_PATH.write_text(json.dumps(sorted(loved)))
+    return now
 
 
 def load_preference() -> str:

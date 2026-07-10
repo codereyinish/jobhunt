@@ -3,7 +3,7 @@ from __future__ import annotations
 import html
 
 from fastapi import FastAPI, Form
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 
 from .apply.router import apply_path, classify_url
 from .core import db
@@ -72,7 +72,14 @@ td.num{color:var(--faint);width:30px;font-variant-numeric:tabular-nums}
 .score{font-variant-numeric:tabular-nums;font-weight:700;width:44px}
 .fit{font-variant-numeric:tabular-nums;font-weight:700;color:var(--accent);width:44px}
 .tier{font-size:12px;color:var(--violet);white-space:nowrap}
-.company{font-weight:600}
+.company{font-weight:600;white-space:nowrap}
+.cname.loved{color:var(--accent)}
+.love{margin-left:9px;cursor:pointer;color:var(--faint);font-size:13px;opacity:0;
+  transition:opacity .12s, color .12s, transform .1s;user-select:none;vertical-align:middle}
+tr:hover .love{opacity:.55}
+.love:hover{color:#ff5a7a}
+.love:active{transform:scale(1.3)}
+.love.on{opacity:1;color:#ff5a7a}
 .role{color:var(--text)}
 .loc{color:var(--muted);font-size:13px;white-space:nowrap}
 .pill{display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;
@@ -123,7 +130,20 @@ def _page(body: str) -> str:
     return (f"<!doctype html><html lang=en><head><meta charset=utf-8>"
             f"<meta name=viewport content='width=device-width,initial-scale=1'>"
             f"<title>jobhunt</title><style>{CSS}</style></head>"
-            f"<body>{_fav_modal()}<div class=wrap>{body}</div></body></html>")
+            f"<body>{_fav_modal()}<div class=wrap>{body}</div>{_JS}</body></html>")
+
+
+_JS = """<script>
+function love(el){
+  var f=new FormData(); f.append('company', el.dataset.c);
+  fetch('/love',{method:'POST',body:f}).then(function(r){return r.json();})
+    .then(function(d){
+      el.classList.toggle('on', d.loved);
+      var n=el.parentNode.querySelector('.cname');
+      if(n) n.classList.toggle('loved', d.loved);
+    });
+}
+</script>"""
 
 
 def _e(v) -> str:
@@ -186,7 +206,7 @@ def _filters(tier: str, min_score: int, fresh: bool, sort: str) -> str:
     )
 
 
-def _table(rows, show_fit: bool) -> str:
+def _table(rows, show_fit: bool, loved: set) -> str:
     if not rows:
         return "<div class=empty>No jobs match. Run <code>jobhunt source</code> first, or loosen filters.</div>"
     fit_h = "<th>Fit</th>" if show_fit else ""
@@ -200,11 +220,17 @@ def _table(rows, show_fit: bool) -> str:
         if show_fit:
             fv = r["fit"]
             fit_c = f"<td class=fit>{fv if fv is not None else '—'}</td>"
+        comp = r["company"] or ""
+        on = " on" if comp in loved else ""
+        cn = " loved" if comp in loved else ""
+        heart = (f"<span class=\"cname{cn}\">{_e(comp)}</span>"
+                 f"<span class='love{on}' data-c=\"{_e(comp)}\" onclick='love(this)' "
+                 f"title='favorite company'>&#9829;</span>")
         body.append(
             f"<tr><td class=num>{i}</td>{fit_c}"
             f"<td class=score>{r['score']}</td>"
             f"<td class=tier>{_TIER_LABEL.get(r['tier'], r['tier'] or '—')}</td>"
-            f"<td class=company>{_e(r['company'])}</td>"
+            f"<td class=company>{heart}</td>"
             f"<td class=role>{_e(r['title'])}</td>"
             f"<td class=loc>{_e(loc)}</td>"
             f"<td><span class='pill {path}'>{path}</span></td>"
@@ -215,9 +241,10 @@ def _table(rows, show_fit: bool) -> str:
 
 def _render(tier: str, min_score: int, fresh: bool, sort: str,
             preference: str = "", notice: str = "") -> str:
-    from .core.favorites import load_preference
+    from .core.favorites import load_preference, loved_companies
     if not preference:
         preference = load_preference()
+    loved = loved_companies()
     q = "SELECT * FROM jobs WHERE score >= ?"
     p: list = [min_score]
     if tier:
@@ -242,13 +269,19 @@ def _render(tier: str, min_score: int, fresh: bool, sort: str,
         + _check_form()
         + _pref_panel(tier, min_score, preference)
         + _filters(tier, min_score, fresh, sort)
-        + "<div class=panel>" + _table(rows, show_fit=(sort == "fit")) + "</div>"
+        + "<div class=panel>" + _table(rows, sort == "fit", loved) + "</div>"
     )
 
 
 @app.get("/", response_class=HTMLResponse)
 def index(tier: str = "", min_score: int = 40, fresh: int = 0, sort: str = ""):
     return _render(tier, min_score, bool(fresh), sort)
+
+
+@app.post("/love")
+def love_route(company: str = Form(...)):
+    from .core.favorites import toggle_loved
+    return JSONResponse({"loved": toggle_loved(company)})
 
 
 @app.post("/add", response_class=HTMLResponse)
