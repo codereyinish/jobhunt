@@ -76,12 +76,13 @@ stages 1–5 automatically, pinging you when a fresh high-score match lands.
 ### Codebase map
 
 ```
-cli.py               commands: source · poll · list · show · classify
+cli.py               commands: source · poll · list · show · classify · check
 core/config.py       loads the YAML configs
 core/db.py           SQLite schema + upsert/dedupe
 sourcing/            one file per source (base.py = shared HTTP + HTML strip)
 match/score.py       location filter + tiered scorer
 apply/router.py      classify a job URL → auto / confirm / manual
+apply/inspect.py     `check <url>`: fetch + score + resolve a pasted job link
 config/*.yaml        settings (filters/tiers) · companies (ATS list) · profile (you)
 scheduler/install.sh macOS 24/7 poller
 ```
@@ -102,6 +103,7 @@ jh list             # ranked matches
 jh list --new-hours 24
 jh show 12          # full job detail
 jh classify         # how many jobs are auto-applyable
+jh check <job-url>  # paste any job link: does it fit? where do I apply? (--save to keep)
 ```
 
 ## Configure (all editable)

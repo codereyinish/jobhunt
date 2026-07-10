@@ -159,6 +159,51 @@ def cmd_show(args):
     print((r["description"] or "")[:3500])
 
 
+def cmd_check(args):
+    """Paste a job URL -> extract it, score it against your tiers, and resolve
+    the real ATS apply path."""
+    from .apply.inspect import inspect
+    from .apply.router import apply_path, classify_url
+
+    cfg = settings()
+    print("Fetching…")
+    try:
+        info = inspect(args.url)
+    except Exception as e:
+        print(f"Could not fetch/parse that URL: {e}")
+        return
+
+    passes, remote = location_ok(info, cfg)
+    info["remote"] = 1 if remote else 0
+    score, tier = score_job(info, cfg)
+    kind = classify_url(info["final_url"], info.get("source", ""))
+    path = apply_path(kind)
+    min_score = cfg["sourcing"]["min_score"]
+    fits = passes and score >= min_score
+
+    print(f"\n  Title      : {info['title'] or '(couldn’t read — JS-only page?)'}")
+    print(f"  Company    : {info['company'] or '?'}")
+    print(f"  Location   : {info['location'] or '?'}  (US-ok: {passes}, remote: {bool(remote)})")
+    print(f"  Apply via  : {kind}  ->  {path}"
+          f"{'   [auto-fillable ATS]' if path == 'auto' else ''}")
+    print(f"  Final URL  : {info['final_url']}")
+    print(f"  Score/tier : {score}  {tier or '-'}  (min {min_score})")
+    if info.get("_no_jsonld"):
+        print("  note       : no JSON-LD on page — score is title-only; "
+              "open the URL to confirm.")
+    print(f"\n  => {'✅ FITS your criteria' if fits else '❌ does not fit'} "
+          f"({'above' if score >= min_score else 'below'} min_score, "
+          f"{'US' if passes else 'non-US'})")
+
+    if args.save and fits:
+        info["score"], info["tier"] = score, tier
+        with db.connect() as conn:
+            state = db.upsert_job(conn, info)
+        print(f"  saved to DB ({state}).")
+    elif args.save:
+        print("  not saved (doesn’t fit; use nothing to force, or fix filters).")
+
+
 def cmd_classify(args):
     from collections import Counter
 
@@ -215,6 +260,11 @@ def main():
     c = sub.add_parser("classify", help="check which jobs lead to an auto-applyable ATS")
     c.add_argument("--min-score", type=int, default=60)
     c.set_defaults(fn=cmd_classify)
+
+    ck = sub.add_parser("check", help="paste a job URL -> fit + ATS apply path")
+    ck.add_argument("url")
+    ck.add_argument("--save", action="store_true", help="store it if it fits")
+    ck.set_defaults(fn=cmd_check)
 
     args = ap.parse_args()
     args.fn(args)
