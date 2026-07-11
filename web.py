@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+import json
 
 from fastapi import FastAPI, Form
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -72,6 +73,8 @@ td.num{color:var(--faint);width:30px;font-variant-numeric:tabular-nums}
 .score{font-variant-numeric:tabular-nums;font-weight:700;width:44px}
 .fit{font-variant-numeric:tabular-nums;font-weight:700;color:var(--accent);width:44px}
 .tier{font-size:12px;color:var(--violet);white-space:nowrap}
+.ctype{font-size:12px;color:var(--muted);white-space:nowrap}
+.ctype.staffing{color:var(--amber)}
 .company{font-weight:600;white-space:nowrap}
 .cname.loved{color:var(--accent)}
 .love{margin-left:9px;cursor:pointer;color:var(--faint);font-size:13px;opacity:0;
@@ -118,6 +121,8 @@ td a{white-space:nowrap}
 """
 
 _TIER_LABEL = {"voice_speech": "voice", "ai_ml": "ai/ml", "swe_backend": "swe"}
+_TYPE_LABEL = {"yc_early": "YC/early", "funded_startup": "startup", "unicorn": "unicorn",
+               "public_corp": "public", "staffing_proxy": "staffing", "unknown": "—"}
 
 
 def _toolbar() -> str:
@@ -223,39 +228,50 @@ def _check_form(url: str = "") -> str:
     )
 
 
-def _filters(tier: str, min_score: int, fresh: bool, sort: str) -> str:
+def _filters(tier: str, min_score: int, fresh: bool, sort: str, applyonly: bool) -> str:
     opts = [("", "all tiers"), ("voice_speech", "voice"),
             ("ai_ml", "ai/ml"), ("swe_backend", "swe")]
     sel = "".join(
         f"<option value='{v}'{' selected' if v == tier else ''}>{lbl}</option>"
         for v, lbl in opts)
     fchk = " checked" if fresh else ""
+    achk = " checked" if applyonly else ""
     return (
         "<div class=panel><h2>Jobs</h2>"
         "<form class=row method=get action='/'>"
         f"<select name=tier>{sel}</select>"
         f"<input type=number name=min_score value={min_score} style='width:110px' title='min score'>"
         f"<label class=chk><input type=checkbox name=fresh value=1{fchk}> last 24h only</label>"
+        f"<label class=chk><input type=checkbox name=apply value=1{achk}> apply-ready only</label>"
         f"<input type=hidden name=sort value='{_e(sort)}'>"
         "<button type=submit>Filter</button>"
         "</form></div>"
     )
 
 
-def _table(rows, show_fit: bool, loved: set) -> str:
+def _table(rows, fitcol, loved: set) -> str:
     if not rows:
         return "<div class=empty>No jobs match. Run <code>jobhunt source</code> first, or loosen filters.</div>"
-    fit_h = "<th>Fit</th>" if show_fit else ""
-    head = (f"<table><thead><tr><th></th>{fit_h}<th>Score</th><th>Tier</th><th>Company</th>"
-            "<th>Role</th><th>Location</th><th>Apply</th><th></th></tr></thead><tbody>")
+    fit_h = "<th>Fit</th>" if fitcol else ""
+    head = (f"<table><thead><tr><th></th>{fit_h}<th>Score</th><th>Tier</th><th>Type</th>"
+            "<th>Company</th><th>Role</th><th>Location</th><th>Apply</th><th></th></tr></thead><tbody>")
     body = []
     for i, r in enumerate(rows, 1):
         path = apply_path(classify_url(r["url"] or "", r["source"] or ""))
         loc = r["location"] or ("Remote" if r["remote"] else "—")
         fit_c = ""
-        if show_fit:
-            fv = r["fit"]
+        if fitcol:
+            fv = r[fitcol]
             fit_c = f"<td class=fit>{fv if fv is not None else '—'}</td>"
+        ctype = r["company_type"]
+        ct_cls = " staffing" if ctype == "staffing_proxy" else ""
+        reason = ""
+        try:
+            if r["analysis"]:
+                reason = (json.loads(r["analysis"]) or {}).get("reason", "")
+        except Exception:
+            pass
+        tip = f' title="{_e(reason)}"' if reason else ""
         comp = r["company"] or ""
         on = " on" if comp in loved else ""
         cn = " loved" if comp in loved else ""
@@ -263,9 +279,10 @@ def _table(rows, show_fit: bool, loved: set) -> str:
                  f"<span class='love{on}' data-c=\"{_e(comp)}\" onclick='love(this)' "
                  f"title='favorite company'>&#9829;</span>")
         body.append(
-            f"<tr><td class=num>{i}</td>{fit_c}"
+            f"<tr{tip}><td class=num>{i}</td>{fit_c}"
             f"<td class=score>{r['score']}</td>"
             f"<td class=tier>{_TIER_LABEL.get(r['tier'], r['tier'] or '—')}</td>"
+            f"<td class='ctype{ct_cls}'>{_TYPE_LABEL.get(ctype, '—')}</td>"
             f"<td class=company>{heart}</td>"
             f"<td class=role>{_e(r['title'])}</td>"
             f"<td class=loc>{_e(loc)}</td>"
@@ -276,22 +293,32 @@ def _table(rows, show_fit: bool, loved: set) -> str:
 
 
 def _render(tier: str, min_score: int, fresh: bool, sort: str,
-            preference: str = "", notice: str = "") -> str:
+            preference: str = "", notice: str = "", applyonly: bool = False) -> str:
     from .core.favorites import load_preference, loved_companies
     if not preference:
         preference = load_preference()
     loved = loved_companies()
-    q = "SELECT * FROM jobs WHERE score >= ?"
-    p: list = [min_score]
-    if tier:
-        q += " AND tier = ?"; p.append(tier)
-    if fresh:
-        q += " AND fetched_at >= datetime('now','-24 hours')"
-    if sort == "fit":
-        q += " ORDER BY fit IS NULL, fit DESC, score DESC"
+
+    if applyonly:
+        q = "SELECT * FROM jobs WHERE apply_ok = 1"
+        p: list = []
+        if tier:
+            q += " AND tier = ?"; p.append(tier)
+        q += " ORDER BY afit DESC LIMIT 200"
+        fitcol = "afit"
     else:
-        q += " ORDER BY score DESC, fetched_at DESC"
-    q += " LIMIT 200"
+        q = "SELECT * FROM jobs WHERE score >= ?"
+        p = [min_score]
+        if tier:
+            q += " AND tier = ?"; p.append(tier)
+        if fresh:
+            q += " AND fetched_at >= datetime('now','-24 hours')"
+        if sort == "fit":
+            q += " ORDER BY fit IS NULL, fit DESC, score DESC"; fitcol = "fit"
+        else:
+            q += " ORDER BY score DESC, fetched_at DESC"; fitcol = None
+        q += " LIMIT 200"
+
     with db.connect() as conn:
         rows = conn.execute(q, p).fetchall()
         total = conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
@@ -303,14 +330,15 @@ def _render(tier: str, min_score: int, fresh: bool, sort: str,
         _header(total, fresh_n)
         + notice_html
         + _check_form()
-        + _filters(tier, min_score, fresh, sort)
-        + "<div class=panel>" + _table(rows, sort == "fit", loved) + "</div>"
+        + _filters(tier, min_score, fresh, sort, applyonly)
+        + "<div class=panel>" + _table(rows, fitcol, loved) + "</div>"
     )
 
 
 @app.get("/", response_class=HTMLResponse)
-def index(tier: str = "", min_score: int = 40, fresh: int = 0, sort: str = ""):
-    return _render(tier, min_score, bool(fresh), sort)
+def index(tier: str = "", min_score: int = 40, fresh: int = 0, sort: str = "",
+          apply: int = 0):
+    return _render(tier, min_score, bool(fresh), sort, applyonly=bool(apply))
 
 
 @app.post("/love")

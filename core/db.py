@@ -23,6 +23,10 @@ CREATE TABLE IF NOT EXISTS jobs (
     score        INTEGER DEFAULT 0,
     tier         TEXT,
     fit          INTEGER,               -- 0-100 semantic fit vs your preference (LLM)
+    company_type TEXT,                  -- yc_early|funded_startup|unicorn|public_corp|staffing_proxy
+    afit         INTEGER,               -- deep-read fit 0-100 (JD + your profile)
+    apply_ok     INTEGER,               -- 1 if it clears your hard gates
+    analysis     TEXT,                  -- JSON: requirements, sponsorship, reason
     status       TEXT DEFAULT 'new',    -- new | drafted | applied | skipped
     UNIQUE(source, source_id)
 );
@@ -50,10 +54,12 @@ def connect():
     conn.row_factory = sqlite3.Row
     try:
         conn.executescript(SCHEMA)
-        try:                              # migrate older DBs
-            conn.execute("ALTER TABLE jobs ADD COLUMN fit INTEGER")
-        except sqlite3.OperationalError:
-            pass
+        for col in ("fit INTEGER", "company_type TEXT", "afit INTEGER",
+                    "apply_ok INTEGER", "analysis TEXT"):       # migrate older DBs
+            try:
+                conn.execute(f"ALTER TABLE jobs ADD COLUMN {col}")
+            except sqlite3.OperationalError:
+                pass
         yield conn
         conn.commit()
     finally:

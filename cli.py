@@ -194,6 +194,58 @@ def cmd_add(args):
     print(f"  fetched {len(raw)} postings, {len(new)} match your filters and were added.")
 
 
+def cmd_analyze(args):
+    """Deep-read the shortlist's descriptions vs your profile, via claude."""
+    import json
+
+    from .match.analyze import analyze
+    from .match.llm import claude_available
+
+    if not claude_available():
+        print("The `claude` CLI isn't on PATH — install Claude Code to use analyze.")
+        return
+
+    with db.connect() as conn:
+        rows = conn.execute(
+            "SELECT id, title, company, location, description FROM jobs "
+            "WHERE score >= ? AND afit IS NULL ORDER BY score DESC LIMIT ?",
+            [args.min_score, args.limit],
+        ).fetchall()
+    jobs = [dict(r) for r in rows]
+    if not jobs:
+        print("Nothing new to analyze (shortlist already screened, or run `source`).")
+        return
+
+    results: dict[int, dict] = {}
+    for i in range(0, len(jobs), args.batch):
+        chunk = jobs[i:i + args.batch]
+        print(f"  reading jobs {i + 1}-{i + len(chunk)} of {len(jobs)}…")
+        results.update(analyze(chunk))
+
+    kept = 0
+    with db.connect() as conn:
+        for jid, a in results.items():
+            fit = int(a.get("fit", 0) or 0)
+            ok = 1 if (a.get("works_for_me") and fit >= args.threshold) else 0
+            kept += ok
+            conn.execute(
+                "UPDATE jobs SET company_type=?, afit=?, apply_ok=?, analysis=? WHERE id=?",
+                [a.get("company_type", "unknown"), fit, ok, json.dumps(a), jid])
+        top = conn.execute(
+            "SELECT company, title, company_type, afit, analysis FROM jobs "
+            "WHERE apply_ok = 1 ORDER BY afit DESC LIMIT 25").fetchall()
+
+    print(f"\nAnalyzed {len(results)}. {kept} cleared your hard gates. Apply list:\n")
+    for r in top:
+        reason = ""
+        try:
+            reason = (json.loads(r["analysis"]) or {}).get("reason", "")
+        except Exception:
+            pass
+        print(f"  {r['afit']:>3} {(r['company_type'] or '?'):<15} "
+              f"{(r['company'] or '')[:18]:<18} {(r['title'] or '')[:34]:<34} {reason[:40]}")
+
+
 def cmd_rank(args):
     """Rank stored jobs against a plain-English preference via the claude CLI."""
     from .match.llm import claude_available, rank
@@ -369,6 +421,13 @@ def main():
     ad = sub.add_parser("add", help="add a company to favorites from its careers URL")
     ad.add_argument("url")
     ad.set_defaults(fn=cmd_add)
+
+    an = sub.add_parser("analyze", help="deep-read shortlist JDs vs your profile (claude)")
+    an.add_argument("--min-score", type=int, default=60)
+    an.add_argument("--limit", type=int, default=40)
+    an.add_argument("--batch", type=int, default=6)
+    an.add_argument("--threshold", type=int, default=60, help="apply-list fit cutoff")
+    an.set_defaults(fn=cmd_analyze)
 
     args = ap.parse_args()
     args.fn(args)

@@ -106,8 +106,15 @@ jh classify         # how many jobs are auto-applyable
 jh check <job-url>  # paste any job link: does it fit? where do I apply? (--save to keep)
 jh add <careers-url># add a company to favorites (Greenhouse/Lever/Ashby/Workday) + fetch it
 jh rank "..."       # rank jobs by a plain-English preference (uses the claude CLI)
+jh analyze          # deep-read shortlist JDs vs your profile → an "apply-ready" list
 jh rescore          # re-apply filters after editing settings (no re-fetch)
 ```
+
+`analyze` is the key quality gate: titles lie ("ML Engineer" that actually needs a
+PhD + 5 years), so it uses the `claude` CLI to read each shortlisted **description**,
+extract the real requirements (education, years, visa sponsorship) and company type
+(startup / unicorn / public / staffing), score fit vs your `profile.yaml`, and keep
+only jobs you can realistically get — the **apply-ready** view in the UI.
 
 ## Web UI
 
