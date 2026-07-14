@@ -378,13 +378,13 @@ td a:hover{
 .menu-list{position:absolute;top:calc(100% + 6px);left:0;z-index:25;min-width:200px;
   background:var(--panel2);border:1px solid var(--line2);border-radius:11px;padding:6px;
   box-shadow:0 18px 48px rgba(0,0,0,.55);display:flex;flex-direction:column;gap:2px}
-.menu-list a{padding:9px 12px;border-radius:8px;font-size:13px;color:var(--text);white-space:nowrap}
+.menu-list a{padding:7px 11px;border-radius:7px;font-size:12px;color:var(--text);white-space:nowrap}
 .menu-list a:hover{background:var(--accent);color:#08101f}
 .menu-list a.sel{color:var(--accent)}
 .menu-list a.sel:hover{color:#08101f}
 .hmenu{margin:0}
-.hmenu>summary{background:none;border:none;padding:0 0 12px;gap:5px;color:var(--faint);
-  font-size:9.5px;text-transform:uppercase;letter-spacing:.12em;font-weight:600}
+.hmenu>summary{background:none;border:none;padding:0 0 12px;gap:5px;color:var(--muted);
+  font-size:11px;text-transform:uppercase;letter-spacing:.07em;font-weight:650}
 .hmenu>summary:hover{color:var(--text)}
 .hmenu[open]>summary{color:var(--accent)}
 .hmenu .menu-list{top:calc(100% - 4px)}
@@ -416,7 +416,7 @@ def _tabs(view: str, base: dict) -> str:
         f"<a href='?{urlencode({**base, 'view': v, 'page': 0})}'"
         f"{' class=sel' if v == view else ''}>{lbl}</a>"
         for v, lbl in items)
-    return (f"<details class=menu><summary>{labels.get(view, 'All jobs')}</summary>"
+    return (f"<details class=menu name=hdr><summary>{labels.get(view, 'All jobs')}</summary>"
             f"<div class=menu-list>{links}</div></details>")
 
 
@@ -618,7 +618,7 @@ def _hmenu(label: str, param: str, cur, opts, base: dict) -> str:
     links = "".join(
         f"<a href='?{urlencode({**base, param: v, 'page': 0})}'"
         f"{' class=sel' if str(v) == str(cur) else ''}>{lbl}</a>" for v, lbl in opts)
-    return (f"<details class='menu hmenu'><summary>{label}</summary>"
+    return (f"<details class='menu hmenu' name=hdr><summary>{label}</summary>"
             f"<div class=menu-list>{links}</div></details>")
 
 
@@ -637,7 +637,7 @@ def _table(rows, fitcol, loved: set, show_why: bool = False, base: dict | None =
                     ("unicorn", "Unicorn"), ("public_corp", "Public"),
                     ("staffing_proxy", "Staffing"), ("yc_early", "YC")], base)
     loc_h = _hmenu("Location", "locf", locf,
-                   [("", "All"), ("remote", "Remote"), ("onsite", "On-site")], base)
+                   [("", "All"), ("us", "US"), ("remote", "Remote"), ("hybrid", "Hybrid")], base)
     apply_h = _hmenu("Apply", "af", af, [("", "All"), ("auto", "Auto"),
                      ("confirm", "Confirm"), ("manual", "Manual")], base)
     head = (f"<table><thead><tr><th></th>{fit_h}<th class=hdd>{score_h}</th>"
@@ -754,8 +754,10 @@ def _render(tier: str, min_score: int, fresh: bool, sort: str,
             q += " AND company_type = ?"; p.append(ctype)
         if locf == "remote":
             q += " AND remote = 1"
-        elif locf == "onsite":
+        elif locf == "us":
             q += " AND remote = 0"
+        elif locf == "hybrid":
+            q += " AND (lower(location) LIKE '%hybrid%' OR lower(description) LIKE '%hybrid%')"
         _auto = ("(source LIKE 'greenhouse%' OR source LIKE 'lever%' OR source LIKE 'ashby%' "
                  "OR source LIKE 'workday%' OR url LIKE '%greenhouse.io%' OR url LIKE '%lever.co%' "
                  "OR url LIKE '%ashbyhq.com%' OR url LIKE '%myworkdayjobs.com%')")
