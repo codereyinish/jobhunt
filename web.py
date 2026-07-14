@@ -304,14 +304,14 @@ def _render(tier: str, min_score: int, fresh: bool, sort: str,
     loved = loved_companies()
 
     if applyonly:
-        q = "SELECT * FROM jobs WHERE apply_ok = 1 AND afit >= ?"
+        q = "SELECT * FROM jobs WHERE apply_ok = 1 AND afit >= ? AND status != 'closed'"
         p: list = [min_fit]
         if tier:
             q += " AND tier = ?"; p.append(tier)
         q += " ORDER BY afit DESC LIMIT 200"
         fitcol = "afit"
     else:
-        q = "SELECT * FROM jobs WHERE score >= ?"
+        q = "SELECT * FROM jobs WHERE score >= ? AND status != 'closed'"
         p = [min_score]
         if tier:
             q += " AND tier = ?"; p.append(tier)

@@ -89,13 +89,46 @@ def _fetch_all(cfg: dict, comp: dict, verbose: bool = True) -> list[dict]:
     return raw
 
 
+_ATS_SOURCES = ("greenhouse", "lever", "ashby", "workday")
+
+
+def _reconcile_ats(raw: list[dict]) -> int:
+    """Mark ATS jobs that vanished from their live board as 'closed'.
+
+    Only touches companies that returned >=1 job this run (so a transient board
+    failure never mass-closes a company), and never reopens/re-closes applied ones.
+    """
+    seen, active = set(), set()
+    for j in raw:
+        if j["source"] in _ATS_SOURCES:
+            seen.add(j["source_id"])
+            active.add((j["source"], j.get("company")))
+    if not active:
+        return 0
+    closed = 0
+    placeholders = ",".join("?" * len(_ATS_SOURCES))
+    with db.connect() as conn:
+        rows = conn.execute(
+            f"SELECT id, source, company, source_id FROM jobs "
+            f"WHERE source IN ({placeholders}) AND status NOT IN ('applied','closed')",
+            _ATS_SOURCES,
+        ).fetchall()
+        for r in rows:
+            if (r["source"], r["company"]) in active and r["source_id"] not in seen:
+                conn.execute("UPDATE jobs SET status='closed' WHERE id=?", [r["id"]])
+                closed += 1
+    return closed
+
+
 def cmd_source(args):
     cfg, comp = settings(), companies()
     print("Fetching sources…")
     raw = _fetch_all(cfg, comp)
     print(f"Total raw postings: {len(raw)}")
     new_rows = _ingest(raw, cfg)
-    print(f"\n{len(new_rows)} NEW jobs added (rest already tracked).")
+    closed = _reconcile_ats(raw)
+    print(f"\n{len(new_rows)} NEW jobs added (rest already tracked). "
+          f"{closed} closed (vanished from their ATS board).")
     for j in sorted(new_rows, key=lambda x: -x["score"])[:15]:
         print(f"  +{j['score']:>3} {(j['tier'] or '-'):<12} "
               f"{(j['company'] or '')[:22]:<22} {(j['title'] or '')[:44]}")
@@ -107,6 +140,7 @@ def cmd_poll(args):
     cfg, comp = settings(), companies()
     raw = _fetch_all(cfg, comp, verbose=False)
     new_rows = _ingest(raw, cfg)
+    _reconcile_ats(raw)
     threshold = cfg["sourcing"].get("notify_min_score", 60)
     hot = [j for j in new_rows if j["score"] >= threshold]
     print(f"[poll] {len(new_rows)} new, {len(hot)} above notify threshold "
@@ -120,7 +154,7 @@ def cmd_poll(args):
 
 
 def cmd_list(args):
-    q = "SELECT * FROM jobs WHERE score >= ?"
+    q = "SELECT * FROM jobs WHERE score >= ? AND status != 'closed'"
     p: list = [args.min_score]
     if args.tier:
         q += " AND tier = ?"; p.append(args.tier)
@@ -317,11 +351,14 @@ def cmd_check(args):
         print(f"Could not fetch/parse that URL: {e}")
         return
 
+    from .apply.liveness import is_live
+
     passes, remote = location_ok(info, cfg)
     info["remote"] = 1 if remote else 0
     score, tier = score_job(info, cfg)
     kind = classify_url(info["final_url"], info.get("source", ""))
     path = apply_path(kind)
+    live = is_live(info["final_url"])
     min_score = cfg["sourcing"]["min_score"]
     fits = passes and score >= min_score
 
@@ -330,6 +367,7 @@ def cmd_check(args):
     print(f"  Location   : {info['location'] or '?'}  (US-ok: {passes}, remote: {bool(remote)})")
     print(f"  Apply via  : {kind}  ->  {path}"
           f"{'   [auto-fillable ATS]' if path == 'auto' else ''}")
+    print(f"  Live       : {'yes' if live else 'NO — looks closed/removed'}")
     print(f"  Final URL  : {info['final_url']}")
     print(f"  Score/tier : {score}  {tier or '-'}  (min {min_score})")
     if info.get("_no_jsonld"):
