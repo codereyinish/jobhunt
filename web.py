@@ -277,6 +277,8 @@ td a:hover{
 
 /* ── Empty state ── */
 .empty{color:var(--muted);padding:48px 0;text-align:center;font-size:13.5px}
+.emptyrow{color:var(--muted);padding:44px 12px;text-align:center;font-size:13.5px}
+.emptyrow:hover{background:none}
 
 /* ── Pagination ── */
 .pager{
@@ -655,8 +657,6 @@ def _hmenu(label: str, param: str, cur, opts, base: dict) -> str:
 def _table(rows, fitcol, loved: set, show_why: bool = False, base: dict | None = None,
            tier: str = "", sort: str = "", ctype: str = "", locf: str = "", af: str = "",
            loc_states=None) -> str:
-    if not rows:
-        return "<div class=empty>No jobs here. Run <code>jobhunt source</code> / <code>analyze</code>, or loosen filters.</div>"
     base = base or {}
     fit_h = "<th>Fit</th>" if fitcol else ""
     why_h = "<th>Why</th>" if show_why else ""
@@ -677,6 +677,11 @@ def _table(rows, fitcol, loved: set, show_why: bool = False, base: dict | None =
             f"<th>Company</th><th>Role</th><th class=hdd>{loc_h}</th>{why_h}"
             f"<th class=hdd>{apply_h}</th><th></th>"
             "</tr></thead><tbody>")
+    if not rows:
+        return (head + "<tr><td colspan=20 class=emptyrow>No jobs match these "
+                "filters — change a column filter above, or run "
+                "<code>jobhunt source</code> / <code>analyze</code>."
+                "</td></tr></tbody></table>")
     body = []
     for i, r in enumerate(rows, 1):
         path = apply_path(classify_url(r["url"] or "", r["source"] or ""))
