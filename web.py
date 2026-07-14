@@ -364,13 +364,24 @@ td a:hover{
   padding:1px 3px;font-weight:560}
 .hl-req{color:var(--amber);background:rgba(251,191,36,.08);border-radius:3px;padding:1px 3px}
 
-/* ── View-mode tabs ── */
-.tabs{display:inline-flex;gap:3px;margin-bottom:15px;background:var(--panel);
-  border:1px solid var(--line);border-radius:11px;padding:4px}
-.tab{padding:7px 15px;border-radius:8px;font-size:12.5px;font-weight:540;
-  color:var(--muted);white-space:nowrap;transition:color .14s,background .14s}
-.tab:hover{color:var(--text);background:rgba(255,255,255,.03)}
-.tab.active,.tab.active:hover{background:var(--accent);color:#011a18;font-weight:650}
+/* ── View dropdown menu (macOS-style) ── */
+.menu{position:relative;display:inline-block;margin-bottom:15px}
+.menu>summary{list-style:none;cursor:pointer;user-select:none;display:inline-flex;
+  align-items:center;gap:9px;background:var(--panel);border:1px solid var(--line2);
+  border-radius:8px;padding:8px 14px;font-size:13px;font-weight:560;color:var(--text)}
+.menu>summary::-webkit-details-marker{display:none}
+.menu>summary::after{content:'';width:8px;height:5px;flex-shrink:0;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='8' height='5' fill='none'%3E%3Cpath d='M1 1l3 3 3-3' stroke='%237b8494' stroke-width='1.3' stroke-linecap='round'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:center}
+.menu>summary:hover{border-color:var(--accent)}
+.menu[open]>summary{border-color:var(--accent)}
+.menu-list{position:absolute;top:calc(100% + 6px);left:0;z-index:25;min-width:200px;
+  background:var(--panel2);border:1px solid var(--line2);border-radius:11px;padding:6px;
+  box-shadow:0 18px 48px rgba(0,0,0,.55);display:flex;flex-direction:column;gap:2px}
+.menu-list a{padding:9px 12px;border-radius:8px;font-size:13px;color:var(--text);white-space:nowrap}
+.menu-list a:hover{background:var(--accent);color:#08101f}
+.menu-list a.sel{color:var(--accent)}
+.menu-list a.sel:hover{color:#08101f}
 """
 
 _TIER_LABEL = {"voice_speech": "voice", "ai_ml": "ai/ml", "swe_backend": "swe"}
@@ -383,12 +394,13 @@ def _tabs(view: str, base: dict) -> str:
     from urllib.parse import urlencode
     items = [("", "All jobs"), ("apply", "Apply-ready"),
              ("rejected", "Rejected"), ("review", "Last call")]
-    out = []
-    for v, label in items:
-        cls = "tab active" if view == v else "tab"
-        href = "?" + urlencode({**base, "view": v, "page": 0})
-        out.append(f"<a class='{cls}' href='{href}'>{label}</a>")
-    return "<div class=tabs>" + "".join(out) + "</div>"
+    labels = dict(items)
+    links = "".join(
+        f"<a href='?{urlencode({**base, 'view': v, 'page': 0})}'"
+        f"{' class=sel' if v == view else ''}>{lbl}</a>"
+        for v, lbl in items)
+    return (f"<details class=menu><summary>{labels.get(view, 'All jobs')}</summary>"
+            f"<div class=menu-list>{links}</div></details>")
 
 
 def _pager(page: int, has_next: bool, base: dict) -> str:
