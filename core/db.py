@@ -28,6 +28,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     apply_ok     INTEGER,               -- 1 if it clears your hard gates
     analysis     TEXT,                  -- JSON: requirements, sponsorship, reason
     analyzed_at  TEXT,                  -- when the deep-read last ran
+    analysis_run INTEGER,               -- which analyze run/"call" produced this
+    pinned       INTEGER DEFAULT 0,     -- manually added to the apply list
     status       TEXT DEFAULT 'new',    -- new | drafted | applied | skipped
     UNIQUE(source, source_id)
 );
@@ -56,8 +58,9 @@ def connect():
     try:
         conn.executescript(SCHEMA)
         for col in ("fit INTEGER", "company_type TEXT", "afit INTEGER",
-                    "apply_ok INTEGER", "analysis TEXT",
-                    "analyzed_at TEXT"):                        # migrate older DBs
+                    "apply_ok INTEGER", "analysis TEXT", "analyzed_at TEXT",
+                    "analysis_run INTEGER",
+                    "pinned INTEGER DEFAULT 0"):                # migrate older DBs
             try:
                 conn.execute(f"ALTER TABLE jobs ADD COLUMN {col}")
             except sqlite3.OperationalError:

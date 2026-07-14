@@ -383,12 +383,22 @@ td a:hover{
 .menu-list a.sel{color:var(--accent)}
 .menu-list a.sel:hover{color:#08101f}
 .hmenu{margin:0}
-.hmenu>summary{background:none;border:none;padding:0 0 11px;gap:5px;color:var(--muted);
-  font-size:10.5px;text-transform:uppercase;letter-spacing:.09em;font-weight:600}
+.hmenu>summary{background:none;border:none;padding:0 0 12px;gap:5px;color:var(--faint);
+  font-size:9.5px;text-transform:uppercase;letter-spacing:.12em;font-weight:600}
 .hmenu>summary:hover{color:var(--text)}
 .hmenu[open]>summary{color:var(--accent)}
 .hmenu .menu-list{top:calc(100% - 4px)}
 th.hdd{padding-bottom:0}
+a.cname{color:var(--text);transition:color .12s}
+a.cname:hover{color:var(--accent)}
+a.cname.loved{color:var(--accent)}
+.actions{white-space:nowrap;display:flex;align-items:center;gap:12px;justify-content:flex-end}
+.pin{cursor:pointer;color:var(--faint);font-size:14px;opacity:0;
+  transition:opacity .12s,color .12s,transform .1s;user-select:none}
+tr:hover .pin{opacity:.55}
+.pin:hover{color:var(--amber)}
+.pin:active{transform:scale(1.25)}
+.pin.on{opacity:1;color:var(--amber)}
 """
 
 _TIER_LABEL = {"voice_speech": "voice", "ai_ml": "ai/ml", "swe_backend": "swe"}
@@ -532,6 +542,11 @@ function love(el){
       if(n) n.classList.toggle('loved', d.loved);
     });
 }
+function pin(el){
+  var f=new FormData(); f.append('id', el.dataset.i);
+  fetch('/pin',{method:'POST',body:f}).then(function(r){return r.json();})
+    .then(function(d){ el.classList.toggle('on', d.pinned); });
+}
 </script>"""
 
 
@@ -608,7 +623,7 @@ def _hmenu(label: str, param: str, cur, opts, base: dict) -> str:
 
 
 def _table(rows, fitcol, loved: set, show_why: bool = False, base: dict | None = None,
-           tier: str = "", sort: str = "", ctype: str = "") -> str:
+           tier: str = "", sort: str = "", ctype: str = "", locf: str = "", af: str = "") -> str:
     if not rows:
         return "<div class=empty>No jobs here. Run <code>jobhunt source</code> / <code>analyze</code>, or loosen filters.</div>"
     base = base or {}
@@ -621,9 +636,14 @@ def _table(rows, fitcol, loved: set, show_why: bool = False, base: dict | None =
     type_h = _hmenu("Type", "ctype", ctype, [("", "All"), ("funded_startup", "Startup"),
                     ("unicorn", "Unicorn"), ("public_corp", "Public"),
                     ("staffing_proxy", "Staffing"), ("yc_early", "YC")], base)
+    loc_h = _hmenu("Location", "locf", locf,
+                   [("", "All"), ("remote", "Remote"), ("onsite", "On-site")], base)
+    apply_h = _hmenu("Apply", "af", af, [("", "All"), ("auto", "Auto"),
+                     ("confirm", "Confirm"), ("manual", "Manual")], base)
     head = (f"<table><thead><tr><th></th>{fit_h}<th class=hdd>{score_h}</th>"
             f"<th class=hdd>{tier_h}</th><th class=hdd>{type_h}</th>"
-            f"<th>Company</th><th>Role</th><th>Location</th>{why_h}<th>Apply</th><th></th>"
+            f"<th>Company</th><th>Role</th><th class=hdd>{loc_h}</th>{why_h}"
+            f"<th class=hdd>{apply_h}</th><th></th>"
             "</tr></thead><tbody>")
     body = []
     for i, r in enumerate(rows, 1):
@@ -636,9 +656,11 @@ def _table(rows, fitcol, loved: set, show_why: bool = False, base: dict | None =
         comp = r["company"] or ""
         on = " on" if comp in loved else ""
         cn = " loved" if comp in loved else ""
-        heart = (f"<span class=\"cname{cn}\">{_e(comp)}</span>"
+        curl = r["url"] or "#"
+        heart = (f"<a class=\"cname{cn}\" href='{_e(curl)}' target=_blank rel=noopener>{_e(comp)}</a>"
                  f"<span class='love{on}' data-c=\"{_e(comp)}\" onclick='love(this)' "
                  f"title='favorite company'>&#9829;</span>")
+        pn = " on" if r["pinned"] else ""
         body.append(
             f"<tr><td class=num>{i}</td>{fit_c}"
             f"<td class=score>{r['score']}</td>"
@@ -648,7 +670,10 @@ def _table(rows, fitcol, loved: set, show_why: bool = False, base: dict | None =
             f"<td class=role>{_e(r['title'])}</td>"
             f"<td class=loc>{_e(loc)}</td>{why_c}"
             f"<td><span class='pill {path}'>{path}</span></td>"
-            f"<td><a href='{_e(r['url'])}' target=_blank rel=noopener>open ↗</a></td></tr>"
+            f"<td class=actions>"
+            f"<span class='pin{pn}' data-i='{r['id']}' onclick='pin(this)' "
+            f"title='add to apply list'>&#9733;</span>"
+            f"<a href='{_e(curl)}' target=_blank rel=noopener>open ↗</a></td></tr>"
         )
     return head + "".join(body) + "</tbody></table>"
 
@@ -690,7 +715,8 @@ def _review_cards(rows) -> str:
 
 def _render(tier: str, min_score: int, fresh: bool, sort: str,
             preference: str = "", notice: str = "", view: str = "",
-            min_fit: int = 50, page: int = 0, ctype: str = "") -> str:
+            min_fit: int = 50, page: int = 0, ctype: str = "",
+            locf: str = "", af: str = "") -> str:
     from .core.favorites import load_preference, loved_companies
     if not preference:
         preference = load_preference()
@@ -705,7 +731,8 @@ def _render(tier: str, min_score: int, fresh: bool, sort: str,
         q += " ORDER BY analyzed_at DESC, afit DESC"
         fitcol = "afit"
     elif view == "apply":
-        q = "SELECT * FROM jobs WHERE apply_ok = 1 AND afit >= ? AND status != 'closed'"
+        q = ("SELECT * FROM jobs WHERE ((apply_ok = 1 AND afit >= ?) OR pinned = 1) "
+             "AND status != 'closed'")
         p: list = [min_fit]
         if tier:
             q += " AND tier = ?"; p.append(tier)
@@ -725,6 +752,20 @@ def _render(tier: str, min_score: int, fresh: bool, sort: str,
             q += " AND tier = ?"; p.append(tier)
         if ctype:
             q += " AND company_type = ?"; p.append(ctype)
+        if locf == "remote":
+            q += " AND remote = 1"
+        elif locf == "onsite":
+            q += " AND remote = 0"
+        _auto = ("(source LIKE 'greenhouse%' OR source LIKE 'lever%' OR source LIKE 'ashby%' "
+                 "OR source LIKE 'workday%' OR url LIKE '%greenhouse.io%' OR url LIKE '%lever.co%' "
+                 "OR url LIKE '%ashbyhq.com%' OR url LIKE '%myworkdayjobs.com%')")
+        _conf = "(url LIKE '%indeed.com%' OR url LIKE '%linkedin.com%' OR url LIKE '%glassdoor%')"
+        if af == "auto":
+            q += f" AND {_auto}"
+        elif af == "confirm":
+            q += f" AND {_conf} AND NOT {_auto}"
+        elif af == "manual":
+            q += f" AND NOT {_auto} AND NOT {_conf}"
         if fresh:
             q += " AND fetched_at >= datetime('now','-24 hours')"
         if sort == "fit":
@@ -745,14 +786,14 @@ def _render(tier: str, min_score: int, fresh: bool, sort: str,
     rows = rows[:_PAGE]
     base = {"view": view, "tier": tier, "min_score": min_score,
             "fresh": 1 if fresh else 0, "sort": sort, "min_fit": min_fit,
-            "ctype": ctype}
+            "ctype": ctype, "locf": locf, "af": af}
     notice_html = f"<div class=result>{notice}</div>" if notice else ""
     tabs = _tabs(view, base)
     if view == "review":
         content = tabs + _review_cards(rows) + _pager(page, has_next, base)
     else:
         content = (tabs + "<div class=panel>"
-                   + _table(rows, fitcol, loved, show_why, base, tier, sort, ctype)
+                   + _table(rows, fitcol, loved, show_why, base, tier, sort, ctype, locf, af)
                    + _pager(page, has_next, base) + "</div>")
     return _page(
         _header(total, fresh_n)
@@ -764,9 +805,10 @@ def _render(tier: str, min_score: int, fresh: bool, sort: str,
 
 @app.get("/", response_class=HTMLResponse)
 def index(tier: str = "", min_score: int = 40, fresh: int = 0, sort: str = "",
-          view: str = "", min_fit: int = 50, page: int = 0, ctype: str = ""):
+          view: str = "", min_fit: int = 50, page: int = 0, ctype: str = "",
+          locf: str = "", af: str = ""):
     return _render(tier, min_score, bool(fresh), sort, view=view, min_fit=min_fit,
-                   page=max(0, page), ctype=ctype)
+                   page=max(0, page), ctype=ctype, locf=locf, af=af)
 
 
 @app.post("/resume", response_class=HTMLResponse)
@@ -793,6 +835,15 @@ def prompt_route(prompt: str = Form("")):
 def love_route(company: str = Form(...)):
     from .core.favorites import toggle_loved
     return JSONResponse({"loved": toggle_loved(company)})
+
+
+@app.post("/pin")
+def pin_route(id: int = Form(...)):
+    with db.connect() as conn:
+        cur = conn.execute("SELECT pinned FROM jobs WHERE id = ?", [id]).fetchone()
+        new = 0 if (cur and cur["pinned"]) else 1
+        conn.execute("UPDATE jobs SET pinned = ? WHERE id = ?", [new, id])
+    return JSONResponse({"pinned": bool(new)})
 
 
 @app.post("/add", response_class=HTMLResponse)

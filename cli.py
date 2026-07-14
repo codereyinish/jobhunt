@@ -259,14 +259,16 @@ def cmd_analyze(args):
 
     kept = 0
     with db.connect() as conn:
+        run_no = (conn.execute(
+            "SELECT COALESCE(MAX(analysis_run), 0) FROM jobs").fetchone()[0] or 0) + 1
         for jid, a in results.items():
             fit = int(a.get("fit", 0) or 0)
             ok = 1 if a.get("works_for_me") else 0    # hard gates only; fit is a live UI filter
             kept += ok
             conn.execute(
                 "UPDATE jobs SET company_type=?, afit=?, apply_ok=?, analysis=?, "
-                "analyzed_at=datetime('now') WHERE id=?",
-                [a.get("company_type", "unknown"), fit, ok, json.dumps(a), jid])
+                "analyzed_at=datetime('now'), analysis_run=? WHERE id=?",
+                [a.get("company_type", "unknown"), fit, ok, json.dumps(a), run_no, jid])
         top = conn.execute(
             "SELECT company, title, company_type, afit, analysis FROM jobs "
             "WHERE apply_ok = 1 ORDER BY afit DESC LIMIT 25").fetchall()
