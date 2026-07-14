@@ -395,6 +395,32 @@ td a:hover{
 .srch{display:flex;gap:6px}
 .srch input{min-width:150px;font-size:12.5px}
 .srch button{padding:8px 12px;font-size:12.5px}
+
+/* ── Pipeline / flow page ── */
+.flowtop{display:flex;align-items:center;justify-content:space-between;margin-bottom:28px;
+  padding-bottom:20px;border-bottom:1px solid var(--line)}
+.flowtop h1{font-size:19px;font-weight:700;letter-spacing:-.02em;margin:0}
+.flowcanvas{background-image:radial-gradient(var(--line2) .8px, transparent .8px);
+  background-size:22px 22px;border:1px solid var(--line);border-radius:16px;padding:26px 22px}
+.flow{display:flex;align-items:stretch;gap:0;flex-wrap:wrap;row-gap:16px}
+.fnode{flex:1;min-width:180px;background:var(--panel);border:1px solid var(--line);
+  border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:11px}
+.fnode.ready{border-color:var(--accent);box-shadow:0 0 30px var(--accent-soft)}
+.fhead{font-size:10.5px;text-transform:uppercase;letter-spacing:.09em;color:var(--muted);
+  font-weight:600;display:flex;align-items:center;gap:8px}
+.fnum{width:19px;height:19px;border-radius:50%;background:var(--accent);color:#06101f;
+  display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0}
+.fbig{font-size:34px;font-weight:700;letter-spacing:-.03em;font-variant-numeric:tabular-nums;line-height:1}
+.fdesc{font-size:12px;color:var(--muted);line-height:1.45}
+.fbtn,.fnode button{font-size:12.5px;text-align:center;border-radius:8px;padding:8px 12px;cursor:pointer}
+.fbtn{color:var(--accent);border:1px solid var(--line2);background:transparent;transition:border-color .14s}
+.fbtn:hover{border-color:var(--accent)}
+.fnode textarea{font-size:12px;line-height:1.5}
+.fconn{align-self:center;width:34px;height:2px;flex-shrink:0;border-radius:2px;
+  background:linear-gradient(90deg,transparent,var(--accent),transparent);
+  background-size:200% 100%;animation:flowmove 1.5s linear infinite}
+@keyframes flowmove{0%{background-position:150% 0}100%{background-position:-150% 0}}
+@media(max-width:760px){.fconn{display:none}.fnode{min-width:45%}}
 .hmenu .menu-list{top:calc(100% - 4px)}
 th.hdd{padding-bottom:0}
 a.cname{color:var(--text);transition:color .12s}
@@ -463,6 +489,7 @@ def _toggles() -> str:
 def _toolbar() -> str:
     return (
         "<div class=toolbar>"
+        "<a class=tool-btn href='/flow'>&#9781;&nbsp; Pipeline</a>"
         "<label for=ctxtoggle class=tool-btn>&#9998;&nbsp; Resume</label>"
         "<label for=preftoggle class=tool-btn>&#10022;&nbsp; Preference</label>"
         "<label for=favtoggle class=heart-btn title='Loved companies'>&#9829;</label>"
@@ -989,6 +1016,70 @@ def check(url: str = Form(...), save: str = Form("")):
         f"{note}<div class=verdict>{verdict}{saved}</div></div>"
     )
     return _page(_header() + _check_form() + banner)
+
+
+def _flow_page(notice: str = "") -> str:
+    from .core.config import search_terms
+    kw = _e("\n".join(search_terms()))
+    with db.connect() as conn:
+        total = conn.execute("SELECT COUNT(*) FROM jobs WHERE status != 'closed'").fetchone()[0]
+        analyzed = conn.execute("SELECT COUNT(*) FROM jobs WHERE analysis IS NOT NULL AND status != 'closed'").fetchone()[0]
+        ready = conn.execute("SELECT COUNT(*) FROM jobs WHERE (apply_ok = 1 OR pinned = 1) AND status != 'closed'").fetchone()[0]
+        runs = conn.execute("SELECT COALESCE(MAX(analysis_run), 0) FROM jobs").fetchone()[0]
+    top = ("<div class=flowtop><h1>jobhunt · pipeline</h1>"
+           "<a class=tool-btn href='/'>&larr; jobs</a></div>")
+    banner = f"<div class=result style='margin-bottom:18px'>{notice}</div>" if notice else ""
+    C = "<div class=fconn></div>"
+    n1 = ("<div class=fnode><div class=fhead><span class=fnum>1</span> Keywords</div>"
+          "<form class=col method=post action='/keywords' style='width:100%'>"
+          f"<textarea name=keywords rows=7 style='width:100%'>{kw}</textarea>"
+          "<button type=submit style='width:100%'>Save keywords</button></form></div>")
+    n2 = ("<div class=fnode><div class=fhead><span class=fnum>2</span> Fetch</div>"
+          "<div class=fdesc>JobSpy (Indeed/Google) + ATS boards run these searches.</div>"
+          "<form method=post action='/run-fetch'><button style='width:100%'>&#9654; Run fetch</button></form></div>")
+    n3 = ("<div class=fnode><div class=fhead><span class=fnum>3</span> Fetched</div>"
+          f"<div class=fbig>{total}</div><div class=fdesc>jobs stored &amp; scored</div>"
+          "<a class=fbtn href='/'>Show all &rarr;</a></div>")
+    n4 = ("<div class=fnode><div class=fhead><span class=fnum>4</span> Analyze &middot; JD reader</div>"
+          f"<div class=fbig>{analyzed}</div><div class=fdesc>read by Claude &middot; {runs} call(s)</div>"
+          "<form method=post action='/run-analyze'><button style='width:100%'>&#9654; Run call now</button></form></div>")
+    n5 = ("<div class='fnode ready'><div class=fhead><span class=fnum>5</span> Ready to apply</div>"
+          f"<div class=fbig>{ready}</div><div class=fdesc>vetted &amp; pinned jobs</div>"
+          "<a class=fbtn href='/?view=apply'>Show jobs &rarr;</a></div>")
+    flow = "<div class=flowcanvas><div class=flow>" + C.join([n1, n2, n3, n4, n5]) + "</div></div>"
+    return _page(top + banner + flow)
+
+
+def _bg(args: list):
+    import subprocess
+    import sys
+    from pathlib import Path
+    subprocess.Popen([sys.executable, "-m", "jobhunt.cli"] + args,
+                     cwd=str(Path(__file__).resolve().parents[1]))
+
+
+@app.get("/flow", response_class=HTMLResponse)
+def flow_route():
+    return _flow_page()
+
+
+@app.post("/run-fetch", response_class=HTMLResponse)
+def run_fetch_route():
+    _bg(["source"])
+    return _flow_page("Fetch started in the background — refresh in ~1–2 min for the new count.")
+
+
+@app.post("/run-analyze", response_class=HTMLResponse)
+def run_analyze_route():
+    _bg(["analyze"])
+    return _flow_page("Analyze call started — refresh in ~1–2 min; ‘ready to apply’ will fill in.")
+
+
+@app.post("/keywords", response_class=HTMLResponse)
+def keywords_route(keywords: str = Form("")):
+    from .core.config import save_keywords
+    save_keywords(keywords)
+    return _flow_page("Keywords saved. Hit ▶ Run fetch to use them.")
 
 
 def main():

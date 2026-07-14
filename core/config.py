@@ -43,6 +43,21 @@ def save_resume(text: str) -> None:
     (CONFIG_DIR / "resume.txt").write_text((text or "").strip())
 
 
+def search_terms() -> list:
+    """JobSpy search keywords — from config/keywords.txt (editable in the UI) or
+    the settings.yaml jobspy.search_terms fallback."""
+    p = CONFIG_DIR / "keywords.txt"
+    if p.exists():
+        terms = [ln.strip() for ln in p.read_text().splitlines() if ln.strip()]
+        if terms:
+            return terms
+    return (settings().get("jobspy") or {}).get("search_terms", [])
+
+
+def save_keywords(text: str) -> None:
+    (CONFIG_DIR / "keywords.txt").write_text((text or "").strip())
+
+
 def resume_from_upload(filename: str, data: bytes) -> str:
     """Extract plain text from an uploaded resume (.txt/.md/.pdf)."""
     name = (filename or "").lower()

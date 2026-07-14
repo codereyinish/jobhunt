@@ -29,8 +29,9 @@ def fetch() -> list[dict]:
 
     from jobspy import scrape_jobs   # imported lazily; heavy dependency
 
+    from ..core.config import search_terms
     sites = cfg.get("sites") or ["indeed"]
-    terms = cfg.get("search_terms") or ["software engineer"]
+    terms = search_terms() or cfg.get("search_terms") or ["software engineer"]
     locations = cfg.get("locations") or ["New York, NY"]
     results = int(cfg.get("results_wanted", 20))
     hours_old = cfg.get("hours_old")

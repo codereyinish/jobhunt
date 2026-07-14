@@ -8,3 +8,5 @@ config/profile.yaml
 config/favorites.yaml
 config/resume.txt
 config/analyze_prompt.txt
+
+config/keywords.txt
