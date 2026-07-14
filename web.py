@@ -382,6 +382,13 @@ td a:hover{
 .menu-list a:hover{background:var(--accent);color:#08101f}
 .menu-list a.sel{color:var(--accent)}
 .menu-list a.sel:hover{color:#08101f}
+.hmenu{margin:0}
+.hmenu>summary{background:none;border:none;padding:0 0 11px;gap:5px;color:var(--muted);
+  font-size:10.5px;text-transform:uppercase;letter-spacing:.09em;font-weight:600}
+.hmenu>summary:hover{color:var(--text)}
+.hmenu[open]>summary{color:var(--accent)}
+.hmenu .menu-list{top:calc(100% - 4px)}
+th.hdd{padding-bottom:0}
 """
 
 _TIER_LABEL = {"voice_speech": "voice", "ai_ml": "ai/ml", "swe_backend": "swe"}
@@ -591,12 +598,31 @@ def _why_cell(analysis: str | None, rejected: bool) -> str:
     return f"<span class=why>{_e(a.get('reason', ''))}</span>"
 
 
-def _table(rows, fitcol, loved: set, show_why: bool = False) -> str:
+def _hmenu(label: str, param: str, cur, opts, base: dict) -> str:
+    from urllib.parse import urlencode
+    links = "".join(
+        f"<a href='?{urlencode({**base, param: v, 'page': 0})}'"
+        f"{' class=sel' if str(v) == str(cur) else ''}>{lbl}</a>" for v, lbl in opts)
+    return (f"<details class='menu hmenu'><summary>{label}</summary>"
+            f"<div class=menu-list>{links}</div></details>")
+
+
+def _table(rows, fitcol, loved: set, show_why: bool = False, base: dict | None = None,
+           tier: str = "", sort: str = "", ctype: str = "") -> str:
     if not rows:
         return "<div class=empty>No jobs here. Run <code>jobhunt source</code> / <code>analyze</code>, or loosen filters.</div>"
+    base = base or {}
     fit_h = "<th>Fit</th>" if fitcol else ""
     why_h = "<th>Why</th>" if show_why else ""
-    head = (f"<table><thead><tr><th></th>{fit_h}<th>Score</th><th>Tier</th><th>Type</th>"
+    score_h = _hmenu("Score", "sort", sort,
+                     [("", "High → Low"), ("score_asc", "Low → High")], base)
+    tier_h = _hmenu("Tier", "tier", tier, [("", "All"), ("voice_speech", "Voice"),
+                    ("ai_ml", "AI/ML"), ("swe_backend", "SWE")], base)
+    type_h = _hmenu("Type", "ctype", ctype, [("", "All"), ("funded_startup", "Startup"),
+                    ("unicorn", "Unicorn"), ("public_corp", "Public"),
+                    ("staffing_proxy", "Staffing"), ("yc_early", "YC")], base)
+    head = (f"<table><thead><tr><th></th>{fit_h}<th class=hdd>{score_h}</th>"
+            f"<th class=hdd>{tier_h}</th><th class=hdd>{type_h}</th>"
             f"<th>Company</th><th>Role</th><th>Location</th>{why_h}<th>Apply</th><th></th>"
             "</tr></thead><tbody>")
     body = []
@@ -664,7 +690,7 @@ def _review_cards(rows) -> str:
 
 def _render(tier: str, min_score: int, fresh: bool, sort: str,
             preference: str = "", notice: str = "", view: str = "",
-            min_fit: int = 50, page: int = 0) -> str:
+            min_fit: int = 50, page: int = 0, ctype: str = "") -> str:
     from .core.favorites import load_preference, loved_companies
     if not preference:
         preference = load_preference()
@@ -697,10 +723,14 @@ def _render(tier: str, min_score: int, fresh: bool, sort: str,
         p = [min_score]
         if tier:
             q += " AND tier = ?"; p.append(tier)
+        if ctype:
+            q += " AND company_type = ?"; p.append(ctype)
         if fresh:
             q += " AND fetched_at >= datetime('now','-24 hours')"
         if sort == "fit":
             q += " ORDER BY fit IS NULL, fit DESC, score DESC"; fitcol = "fit"
+        elif sort == "score_asc":
+            q += " ORDER BY score ASC"; fitcol = None
         else:
             q += " ORDER BY score DESC, fetched_at DESC"; fitcol = None
 
@@ -714,15 +744,15 @@ def _render(tier: str, min_score: int, fresh: bool, sort: str,
     has_next = len(rows) > _PAGE
     rows = rows[:_PAGE]
     base = {"view": view, "tier": tier, "min_score": min_score,
-            "fresh": 1 if fresh else 0, "sort": sort, "min_fit": min_fit}
+            "fresh": 1 if fresh else 0, "sort": sort, "min_fit": min_fit,
+            "ctype": ctype}
     notice_html = f"<div class=result>{notice}</div>" if notice else ""
     tabs = _tabs(view, base)
     if view == "review":
         content = tabs + _review_cards(rows) + _pager(page, has_next, base)
     else:
         content = (tabs + "<div class=panel>"
-                   + _filters(tier, min_score, fresh, sort, view, min_fit)
-                   + _table(rows, fitcol, loved, show_why)
+                   + _table(rows, fitcol, loved, show_why, base, tier, sort, ctype)
                    + _pager(page, has_next, base) + "</div>")
     return _page(
         _header(total, fresh_n)
@@ -734,9 +764,9 @@ def _render(tier: str, min_score: int, fresh: bool, sort: str,
 
 @app.get("/", response_class=HTMLResponse)
 def index(tier: str = "", min_score: int = 40, fresh: int = 0, sort: str = "",
-          view: str = "", min_fit: int = 50, page: int = 0):
+          view: str = "", min_fit: int = 50, page: int = 0, ctype: str = ""):
     return _render(tier, min_score, bool(fresh), sort, view=view, min_fit=min_fit,
-                   page=max(0, page))
+                   page=max(0, page), ctype=ctype)
 
 
 @app.post("/resume", response_class=HTMLResponse)
