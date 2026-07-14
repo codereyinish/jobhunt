@@ -205,15 +205,16 @@ def cmd_analyze(args):
         print("The `claude` CLI isn't on PATH — install Claude Code to use analyze.")
         return
 
+    where = "score >= ?" if args.force else "score >= ? AND afit IS NULL"
     with db.connect() as conn:
         rows = conn.execute(
-            "SELECT id, title, company, location, description FROM jobs "
-            "WHERE score >= ? AND afit IS NULL ORDER BY score DESC LIMIT ?",
+            f"SELECT id, title, company, location, description FROM jobs "
+            f"WHERE {where} ORDER BY score DESC LIMIT ?",
             [args.min_score, args.limit],
         ).fetchall()
     jobs = [dict(r) for r in rows]
     if not jobs:
-        print("Nothing new to analyze (shortlist already screened, or run `source`).")
+        print("Nothing new to analyze (already screened — use --force to re-read).")
         return
 
     results: dict[int, dict] = {}
@@ -226,7 +227,7 @@ def cmd_analyze(args):
     with db.connect() as conn:
         for jid, a in results.items():
             fit = int(a.get("fit", 0) or 0)
-            ok = 1 if (a.get("works_for_me") and fit >= args.threshold) else 0
+            ok = 1 if a.get("works_for_me") else 0    # hard gates only; fit is a live UI filter
             kept += ok
             conn.execute(
                 "UPDATE jobs SET company_type=?, afit=?, apply_ok=?, analysis=? WHERE id=?",
@@ -426,7 +427,8 @@ def main():
     an.add_argument("--min-score", type=int, default=60)
     an.add_argument("--limit", type=int, default=40)
     an.add_argument("--batch", type=int, default=6)
-    an.add_argument("--threshold", type=int, default=60, help="apply-list fit cutoff")
+    an.add_argument("--threshold", type=int, default=60, help="fit cutoff for the printed list")
+    an.add_argument("--force", action="store_true", help="re-read jobs already analyzed")
     an.set_defaults(fn=cmd_analyze)
 
     args = ap.parse_args()

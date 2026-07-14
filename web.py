@@ -228,7 +228,8 @@ def _check_form(url: str = "") -> str:
     )
 
 
-def _filters(tier: str, min_score: int, fresh: bool, sort: str, applyonly: bool) -> str:
+def _filters(tier: str, min_score: int, fresh: bool, sort: str, applyonly: bool,
+             min_fit: int) -> str:
     opts = [("", "all tiers"), ("voice_speech", "voice"),
             ("ai_ml", "ai/ml"), ("swe_backend", "swe")]
     sel = "".join(
@@ -240,9 +241,11 @@ def _filters(tier: str, min_score: int, fresh: bool, sort: str, applyonly: bool)
         "<div class=panel><h2>Jobs</h2>"
         "<form class=row method=get action='/'>"
         f"<select name=tier>{sel}</select>"
-        f"<input type=number name=min_score value={min_score} style='width:110px' title='min score'>"
-        f"<label class=chk><input type=checkbox name=fresh value=1{fchk}> last 24h only</label>"
-        f"<label class=chk><input type=checkbox name=apply value=1{achk}> apply-ready only</label>"
+        f"<input type=number name=min_score value={min_score} style='width:100px' title='min score'>"
+        f"<label class=chk><input type=checkbox name=fresh value=1{fchk}> last 24h</label>"
+        f"<label class=chk><input type=checkbox name=apply value=1{achk}> apply-ready</label>"
+        f"<label class=chk>min fit <input type=number name=min_fit value={min_fit} "
+        f"style='width:70px' title='AI fit cutoff (apply-ready, free to change)'></label>"
         f"<input type=hidden name=sort value='{_e(sort)}'>"
         "<button type=submit>Filter</button>"
         "</form></div>"
@@ -293,15 +296,16 @@ def _table(rows, fitcol, loved: set) -> str:
 
 
 def _render(tier: str, min_score: int, fresh: bool, sort: str,
-            preference: str = "", notice: str = "", applyonly: bool = False) -> str:
+            preference: str = "", notice: str = "", applyonly: bool = False,
+            min_fit: int = 50) -> str:
     from .core.favorites import load_preference, loved_companies
     if not preference:
         preference = load_preference()
     loved = loved_companies()
 
     if applyonly:
-        q = "SELECT * FROM jobs WHERE apply_ok = 1"
-        p: list = []
+        q = "SELECT * FROM jobs WHERE apply_ok = 1 AND afit >= ?"
+        p: list = [min_fit]
         if tier:
             q += " AND tier = ?"; p.append(tier)
         q += " ORDER BY afit DESC LIMIT 200"
@@ -330,15 +334,16 @@ def _render(tier: str, min_score: int, fresh: bool, sort: str,
         _header(total, fresh_n)
         + notice_html
         + _check_form()
-        + _filters(tier, min_score, fresh, sort, applyonly)
+        + _filters(tier, min_score, fresh, sort, applyonly, min_fit)
         + "<div class=panel>" + _table(rows, fitcol, loved) + "</div>"
     )
 
 
 @app.get("/", response_class=HTMLResponse)
 def index(tier: str = "", min_score: int = 40, fresh: int = 0, sort: str = "",
-          apply: int = 0):
-    return _render(tier, min_score, bool(fresh), sort, applyonly=bool(apply))
+          apply: int = 0, min_fit: int = 50):
+    return _render(tier, min_score, bool(fresh), sort,
+                   applyonly=bool(apply), min_fit=min_fit)
 
 
 @app.post("/love")
