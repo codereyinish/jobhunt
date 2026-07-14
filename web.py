@@ -75,6 +75,11 @@ td.num{color:var(--faint);width:30px;font-variant-numeric:tabular-nums}
 .tier{font-size:12px;color:var(--violet);white-space:nowrap}
 .ctype{font-size:12px;color:var(--muted);white-space:nowrap}
 .ctype.staffing{color:var(--amber)}
+.why{color:var(--muted);font-size:12.5px;max-width:280px;display:inline-block}
+.dq{color:#ff7a7a;font-size:12.5px;font-weight:600;max-width:280px;display:inline-block}
+.ctxpre{background:var(--panel2);border:1px solid var(--line2);border-radius:9px;
+  padding:12px 13px;font-size:12px;line-height:1.5;white-space:pre-wrap;
+  color:var(--muted);max-height:190px;overflow:auto;margin:0}
 .company{font-weight:600;white-space:nowrap}
 .cname.loved{color:var(--accent)}
 .love{margin-left:9px;cursor:pointer;color:var(--faint);font-size:13px;opacity:0;
@@ -106,6 +111,7 @@ td a{white-space:nowrap}
   display:none;align-items:flex-start;justify-content:center;z-index:30;padding-top:13vh}
 #favtoggle:checked ~ .fav-ov{display:flex}
 #preftoggle:checked ~ .pref-ov{display:flex}
+#ctxtoggle:checked ~ .ctx-ov{display:flex}
 .chips{display:flex;flex-wrap:wrap;gap:8px}
 .chip{background:var(--panel2);border:1px solid var(--line2);border-radius:999px;
   padding:6px 8px 6px 13px;font-size:13px;font-weight:600;display:flex;align-items:center;gap:9px}
@@ -129,10 +135,32 @@ def _toolbar() -> str:
     return (
         "<input type=checkbox id=favtoggle hidden>"
         "<input type=checkbox id=preftoggle hidden>"
+        "<input type=checkbox id=ctxtoggle hidden>"
         "<div class=toolbar>"
+        "<label for=ctxtoggle class=tool-btn>&#9998;&nbsp; Resume</label>"
         "<label for=preftoggle class=tool-btn>&#10022;&nbsp; Preference</label>"
         "<label for=favtoggle class=heart-btn title='Loved companies'>&#9829;</label>"
         "</div>"
+    )
+
+
+def _context_modal() -> str:
+    from .core.config import resume_text
+    from .match.analyze import _profile_block
+    resume = resume_text()
+    return (
+        "<div class='overlay ctx-ov'><div class=modal>"
+        "<label for=ctxtoggle class=modal-close>&times;</label>"
+        "<div class=modal-h>What Claude sees — your profile</div>"
+        f"<pre class=ctxpre>{_e(_profile_block())}</pre>"
+        "<div class=modal-h style='margin-top:18px'>Your resume &nbsp;·&nbsp; edit &amp; save</div>"
+        "<form class=col method=post action='/resume'>"
+        f"<textarea name=resume rows=12 style='width:100%' "
+        f"placeholder='Paste your resume as plain text — Claude compares it to every JD…'>"
+        f"{_e(resume)}</textarea>"
+        "<div class=row><button type=submit>Save resume</button>"
+        "<span class=hint>then run <code>analyze --force</code> to re-screen with it</span></div>"
+        "</form></div></div>"
     )
 
 
@@ -186,7 +214,7 @@ def _page(body: str) -> str:
     return (f"<!doctype html><html lang=en><head><meta charset=utf-8>"
             f"<meta name=viewport content='width=device-width,initial-scale=1'>"
             f"<title>jobhunt</title><style>{CSS}</style></head>"
-            f"<body>{_toolbar()}{_fav_modal()}{_pref_modal()}"
+            f"<body>{_toolbar()}{_fav_modal()}{_pref_modal()}{_context_modal()}"
             f"<div class=wrap>{body}</div>{_JS}</body></html>")
 
 
@@ -228,53 +256,63 @@ def _check_form(url: str = "") -> str:
     )
 
 
-def _filters(tier: str, min_score: int, fresh: bool, sort: str, applyonly: bool,
+def _filters(tier: str, min_score: int, fresh: bool, sort: str, view: str,
              min_fit: int) -> str:
-    opts = [("", "all tiers"), ("voice_speech", "voice"),
-            ("ai_ml", "ai/ml"), ("swe_backend", "swe")]
-    sel = "".join(
+    topts = [("", "all tiers"), ("voice_speech", "voice"),
+             ("ai_ml", "ai/ml"), ("swe_backend", "swe")]
+    tsel = "".join(
         f"<option value='{v}'{' selected' if v == tier else ''}>{lbl}</option>"
-        for v, lbl in opts)
+        for v, lbl in topts)
+    vopts = [("", "all jobs"), ("apply", "✓ apply-ready"), ("rejected", "✕ rejected")]
+    vsel = "".join(
+        f"<option value='{v}'{' selected' if v == view else ''}>{lbl}</option>"
+        for v, lbl in vopts)
     fchk = " checked" if fresh else ""
-    achk = " checked" if applyonly else ""
     return (
         "<div class=panel><h2>Jobs</h2>"
         "<form class=row method=get action='/'>"
-        f"<select name=tier>{sel}</select>"
-        f"<input type=number name=min_score value={min_score} style='width:100px' title='min score'>"
+        f"<select name=view>{vsel}</select>"
+        f"<select name=tier>{tsel}</select>"
+        f"<input type=number name=min_score value={min_score} style='width:95px' title='min score'>"
         f"<label class=chk><input type=checkbox name=fresh value=1{fchk}> last 24h</label>"
-        f"<label class=chk><input type=checkbox name=apply value=1{achk}> apply-ready</label>"
         f"<label class=chk>min fit <input type=number name=min_fit value={min_fit} "
-        f"style='width:70px' title='AI fit cutoff (apply-ready, free to change)'></label>"
+        f"style='width:66px' title='AI fit cutoff (apply-ready)'></label>"
         f"<input type=hidden name=sort value='{_e(sort)}'>"
         "<button type=submit>Filter</button>"
         "</form></div>"
     )
 
 
-def _table(rows, fitcol, loved: set) -> str:
+def _why_cell(analysis: str | None, rejected: bool) -> str:
+    """Color-coded 'why' — red disqualifiers for rejects, muted reason otherwise."""
+    if not analysis:
+        return ""
+    try:
+        a = json.loads(analysis) or {}
+    except Exception:
+        return ""
+    dq = a.get("disqualifiers") or []
+    if rejected and dq:
+        return f"<span class=dq>{_e(' · '.join(dq))}</span>"
+    return f"<span class=why>{_e(a.get('reason', ''))}</span>"
+
+
+def _table(rows, fitcol, loved: set, show_why: bool = False) -> str:
     if not rows:
-        return "<div class=empty>No jobs match. Run <code>jobhunt source</code> first, or loosen filters.</div>"
+        return "<div class=empty>No jobs here. Run <code>jobhunt source</code> / <code>analyze</code>, or loosen filters.</div>"
     fit_h = "<th>Fit</th>" if fitcol else ""
+    why_h = "<th>Why</th>" if show_why else ""
     head = (f"<table><thead><tr><th></th>{fit_h}<th>Score</th><th>Tier</th><th>Type</th>"
-            "<th>Company</th><th>Role</th><th>Location</th><th>Apply</th><th></th></tr></thead><tbody>")
+            f"<th>Company</th><th>Role</th><th>Location</th>{why_h}<th>Apply</th><th></th>"
+            "</tr></thead><tbody>")
     body = []
     for i, r in enumerate(rows, 1):
         path = apply_path(classify_url(r["url"] or "", r["source"] or ""))
         loc = r["location"] or ("Remote" if r["remote"] else "—")
-        fit_c = ""
-        if fitcol:
-            fv = r[fitcol]
-            fit_c = f"<td class=fit>{fv if fv is not None else '—'}</td>"
+        fit_c = f"<td class=fit>{r[fitcol] if r[fitcol] is not None else '—'}</td>" if fitcol else ""
         ctype = r["company_type"]
         ct_cls = " staffing" if ctype == "staffing_proxy" else ""
-        reason = ""
-        try:
-            if r["analysis"]:
-                reason = (json.loads(r["analysis"]) or {}).get("reason", "")
-        except Exception:
-            pass
-        tip = f' title="{_e(reason)}"' if reason else ""
+        why_c = f"<td>{_why_cell(r['analysis'], rejected=not r['apply_ok'])}</td>" if show_why else ""
         comp = r["company"] or ""
         on = " on" if comp in loved else ""
         cn = " loved" if comp in loved else ""
@@ -282,13 +320,13 @@ def _table(rows, fitcol, loved: set) -> str:
                  f"<span class='love{on}' data-c=\"{_e(comp)}\" onclick='love(this)' "
                  f"title='favorite company'>&#9829;</span>")
         body.append(
-            f"<tr{tip}><td class=num>{i}</td>{fit_c}"
+            f"<tr><td class=num>{i}</td>{fit_c}"
             f"<td class=score>{r['score']}</td>"
             f"<td class=tier>{_TIER_LABEL.get(r['tier'], r['tier'] or '—')}</td>"
             f"<td class='ctype{ct_cls}'>{_TYPE_LABEL.get(ctype, '—')}</td>"
             f"<td class=company>{heart}</td>"
             f"<td class=role>{_e(r['title'])}</td>"
-            f"<td class=loc>{_e(loc)}</td>"
+            f"<td class=loc>{_e(loc)}</td>{why_c}"
             f"<td><span class='pill {path}'>{path}</span></td>"
             f"<td><a href='{_e(r['url'])}' target=_blank rel=noopener>open ↗</a></td></tr>"
         )
@@ -296,16 +334,24 @@ def _table(rows, fitcol, loved: set) -> str:
 
 
 def _render(tier: str, min_score: int, fresh: bool, sort: str,
-            preference: str = "", notice: str = "", applyonly: bool = False,
+            preference: str = "", notice: str = "", view: str = "",
             min_fit: int = 50) -> str:
     from .core.favorites import load_preference, loved_companies
     if not preference:
         preference = load_preference()
     loved = loved_companies()
 
-    if applyonly:
+    show_why = view in ("apply", "rejected")
+    if view == "apply":
         q = "SELECT * FROM jobs WHERE apply_ok = 1 AND afit >= ? AND status != 'closed'"
         p: list = [min_fit]
+        if tier:
+            q += " AND tier = ?"; p.append(tier)
+        q += " ORDER BY afit DESC LIMIT 200"
+        fitcol = "afit"
+    elif view == "rejected":
+        q = "SELECT * FROM jobs WHERE analysis IS NOT NULL AND apply_ok = 0 AND status != 'closed'"
+        p = []
         if tier:
             q += " AND tier = ?"; p.append(tier)
         q += " ORDER BY afit DESC LIMIT 200"
@@ -334,16 +380,24 @@ def _render(tier: str, min_score: int, fresh: bool, sort: str,
         _header(total, fresh_n)
         + notice_html
         + _check_form()
-        + _filters(tier, min_score, fresh, sort, applyonly, min_fit)
-        + "<div class=panel>" + _table(rows, fitcol, loved) + "</div>"
+        + _filters(tier, min_score, fresh, sort, view, min_fit)
+        + "<div class=panel>" + _table(rows, fitcol, loved, show_why) + "</div>"
     )
 
 
 @app.get("/", response_class=HTMLResponse)
 def index(tier: str = "", min_score: int = 40, fresh: int = 0, sort: str = "",
-          apply: int = 0, min_fit: int = 50):
-    return _render(tier, min_score, bool(fresh), sort,
-                   applyonly=bool(apply), min_fit=min_fit)
+          view: str = "", min_fit: int = 50):
+    return _render(tier, min_score, bool(fresh), sort, view=view, min_fit=min_fit)
+
+
+@app.post("/resume", response_class=HTMLResponse)
+def resume_route(resume: str = Form("")):
+    from .core.config import save_resume
+    save_resume(resume)
+    return _render("", 40, False, "", notice=(
+        "Resume saved. Run <code>jobhunt analyze --force</code> to re-screen "
+        "every job against it."))
 
 
 @app.post("/love")

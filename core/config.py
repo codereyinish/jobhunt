@@ -39,6 +39,10 @@ def resume_text() -> str:
     return ""
 
 
+def save_resume(text: str) -> None:
+    (CONFIG_DIR / "resume.txt").write_text((text or "").strip())
+
+
 def companies() -> dict:
     """Curated companies.yaml merged with the user's favorites.yaml (added via
     `jobhunt add`). Not cached, so newly-added favorites take effect at once."""
