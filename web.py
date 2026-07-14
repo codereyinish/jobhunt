@@ -335,6 +335,8 @@ td a:hover{
   color:var(--faint);margin:0 0 14px;font-weight:600;
 }
 
+.filterbar{padding-bottom:15px;margin-bottom:2px;border-bottom:1px solid var(--line);gap:9px}
+
 /* ── Review cards (latest-call audit view) ── */
 .review{display:flex;flex-direction:column;gap:13px}
 .rev-card{background:var(--panel2);border:1px solid var(--line);border-radius:12px;
@@ -549,19 +551,17 @@ def _filters(tier: str, min_score: int, fresh: bool, sort: str, view: str,
         f"<option value='{v}'{' selected' if v == tier else ''}>{lbl}</option>"
         for v, lbl in topts)
     fchk = " checked" if fresh else ""
-    is_open = " open" if (fresh or tier) else ""
     return (
-        f"<details class=panel{is_open}><summary>Filters</summary>"
-        "<form class=row method=get action='/'>"
+        "<form class='row filterbar' method=get action='/'>"
         f"<select name=tier>{tsel}</select>"
-        f"<input type=number name=min_score value={min_score} style='width:92px' title='min score'>"
-        f"<label class=chk><input type=checkbox name=fresh value=1{fchk}> last 24h</label>"
+        f"<input type=number name=min_score value={min_score} style='width:82px' title='min score'>"
+        f"<label class=chk><input type=checkbox name=fresh value=1{fchk}> 24h</label>"
         f"<label class=chk>min fit <input type=number name=min_fit value={min_fit} "
-        f"style='width:64px' title='AI fit cutoff (apply-ready)'></label>"
+        f"style='width:56px' title='AI fit cutoff'></label>"
         f"<input type=hidden name=view value='{_e(view)}'>"
         f"<input type=hidden name=sort value='{_e(sort)}'>"
-        "<button type=submit>Apply filters</button>"
-        "</form></details>"
+        "<button type=submit>Apply</button>"
+        "</form>"
     )
 
 
@@ -708,13 +708,14 @@ def _render(tier: str, min_score: int, fresh: bool, sort: str,
     if view == "review":
         content = tabs + _review_cards(rows) + _pager(page, has_next, base)
     else:
-        content = (tabs + "<div class=panel>" + _table(rows, fitcol, loved, show_why)
+        content = (tabs + "<div class=panel>"
+                   + _filters(tier, min_score, fresh, sort, view, min_fit)
+                   + _table(rows, fitcol, loved, show_why)
                    + _pager(page, has_next, base) + "</div>")
     return _page(
         _header(total, fresh_n)
         + notice_html
         + _check_form()
-        + _filters(tier, min_score, fresh, sort, view, min_fit)
         + content
     )
 
