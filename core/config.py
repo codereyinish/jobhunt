@@ -24,6 +24,21 @@ def profile() -> dict:
     return _load("profile.yaml")
 
 
+def resume_text() -> str:
+    """Your resume as plain text — from config/resume.txt (preferred, gitignored)
+    or a .txt/.md resume_path. Used by the deep-read to compare you vs each JD."""
+    p = CONFIG_DIR / "resume.txt"
+    if p.exists():
+        return p.read_text().strip()
+    rp = (profile().get("resume_path") or "").strip()
+    if rp.lower().endswith((".txt", ".md")):
+        try:
+            return Path(rp).read_text().strip()
+        except OSError:
+            return ""
+    return ""
+
+
 def companies() -> dict:
     """Curated companies.yaml merged with the user's favorites.yaml (added via
     `jobhunt add`). Not cached, so newly-added favorites take effect at once."""
