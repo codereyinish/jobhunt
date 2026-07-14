@@ -15,124 +15,158 @@ app = FastAPI()
 
 CSS = """
 :root{
-  --bg:#0b0d10; --panel:#12151a; --panel2:#171b22;
-  --line:#1c212a; --line2:#272e39;
-  --text:#e7e9ee; --muted:#7b8494; --faint:#4b5461;
-  --accent:#8ab4ff; --green:#54c07a; --amber:#d6a44a; --violet:#b28cff;
+  --bg:#08090c; --panel:#101319; --panel2:#161a21; --elevated:#1b2029;
+  --line:#1d222b; --line2:#2a313d;
+  --text:#eef1f6; --muted:#8b93a1; --faint:#565f6d;
+  --accent:#7c8cff; --accent-2:#a6b0ff; --accent-soft:rgba(124,140,255,.14);
+  --green:#5bc48b; --amber:#e0ac5e; --red:#ec6f88; --violet:#b6a3ff;
 }
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--text);
-  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Inter,Roboto,sans-serif;
-  font-size:14px;line-height:1.55;-webkit-font-smoothing:antialiased}
-.wrap{max-width:1080px;margin:0 auto;padding:44px 28px 90px}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:
+    radial-gradient(1200px 600px at 78% -8%, rgba(124,140,255,.06), transparent 60%),
+    var(--bg);
+  color:var(--text);
+  font-family:'Inter','Inter var',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  font-size:14px;line-height:1.5;letter-spacing:-.006em;
+  -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
+  font-feature-settings:'cv02','cv03','cv04','ss01'}
+.wrap{max-width:1120px;margin:0 auto;padding:38px 30px 110px}
 header{display:flex;align-items:center;justify-content:space-between;
-  padding-bottom:18px;margin-bottom:26px;border-bottom:1px solid var(--line)}
-.brand{font-size:22px;font-weight:680;letter-spacing:-.02em;display:flex;align-items:center;gap:9px}
+  padding-bottom:22px;margin-bottom:26px;border-bottom:1px solid var(--line)}
+.brand{font-size:21px;font-weight:700;letter-spacing:-.03em;display:flex;align-items:center;gap:9px}
 .brand .dot{width:7px;height:7px;border-radius:50%;background:var(--green);
-  box-shadow:0 0 0 3px rgba(84,192,122,.14)}
-.meta{color:var(--muted);font-size:13px;font-variant-numeric:tabular-nums}
+  box-shadow:0 0 0 3px rgba(91,196,139,.16)}
+.meta{color:var(--muted);font-size:12.5px;font-variant-numeric:tabular-nums;letter-spacing:0}
 .meta b{color:var(--text);font-weight:600}
-a{color:var(--accent);text-decoration:none}
-a:hover{opacity:.8}
+a{color:var(--accent);text-decoration:none;transition:color .12s}
+a:hover{color:var(--accent-2)}
 
-.panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;
-  padding:18px 20px;margin-bottom:22px}
-.panel h2{font-size:11px;text-transform:uppercase;letter-spacing:.09em;
-  color:var(--muted);margin:0 0 13px;font-weight:600}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;
+  padding:20px 22px;margin-bottom:18px}
+.panel h2{font-size:11px;text-transform:uppercase;letter-spacing:.11em;
+  color:var(--muted);margin:0 0 14px;font-weight:600}
+details.panel>summary{list-style:none;cursor:pointer;font-size:11px;text-transform:uppercase;
+  letter-spacing:.11em;color:var(--muted);font-weight:600;display:flex;align-items:center;
+  justify-content:space-between}
+details.panel>summary::-webkit-details-marker{display:none}
+details.panel>summary::after{content:'⌄';font-size:15px;transition:transform .18s}
+details.panel[open]>summary::after{transform:rotate(180deg)}
+details.panel[open]>summary{margin-bottom:15px}
 
-form.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+form.row{display:flex;gap:9px;flex-wrap:wrap;align-items:center}
 form.col{display:flex;flex-direction:column;gap:11px;align-items:flex-start}
 input,select,textarea{background:var(--panel2);color:var(--text);
-  border:1px solid var(--line2);border-radius:10px;padding:10px 12px;font-size:14px;
-  outline:none;font-family:inherit}
+  border:1px solid var(--line2);border-radius:9px;padding:9px 12px;font-size:13.5px;
+  outline:none;font-family:inherit;transition:border-color .12s, box-shadow .12s}
 input::placeholder,textarea::placeholder{color:var(--faint)}
-input:focus,select:focus,textarea:focus{border-color:var(--accent)}
+input:focus,select:focus,textarea:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-soft)}
+select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%238b93a1' stroke-width='1.4'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 11px center;padding-right:28px}
 input.url{flex:1;min-width:340px}
 textarea{width:100%;resize:vertical;line-height:1.5}
 label.chk{color:var(--muted);display:flex;gap:7px;align-items:center;font-size:13px;user-select:none}
-button{background:var(--accent);color:#08101f;border:none;border-radius:10px;
-  padding:10px 17px;font-size:14px;font-weight:640;cursor:pointer}
-button:hover{filter:brightness(1.07)}
+button{background:var(--accent);color:#0b0f1e;border:none;border-radius:9px;
+  padding:9px 18px;font-size:13.5px;font-weight:640;cursor:pointer;letter-spacing:-.01em;
+  transition:filter .12s, transform .05s}
+button:hover{filter:brightness(1.08)}
+button:active{transform:translateY(1px)}
 .hint{color:var(--faint);font-size:12px}
 
-.result{border:1px solid var(--line2);border-radius:12px;padding:16px 18px;
+.result{border:1px solid var(--line2);border-radius:13px;padding:17px 19px;
   background:var(--panel2);margin-top:15px}
-.result .t{font-size:16px;font-weight:620;margin:0 0 6px}
+.result .t{font-size:16px;font-weight:640;margin:0 0 6px;letter-spacing:-.01em}
 .kv{color:var(--muted);font-size:13px;margin:3px 0}
 .kv b{color:var(--text);font-weight:560}
 .verdict{margin-top:10px;font-size:14px}
-.fit-c{color:var(--accent)}
-.nofit{color:#ff7a7a;font-weight:700}
+.fit-c{color:var(--green);font-weight:640}
+.nofit{color:var(--red);font-weight:700}
 
 table{width:100%;border-collapse:collapse}
-th{text-align:left;color:var(--muted);font-size:11px;text-transform:uppercase;
-  letter-spacing:.06em;font-weight:600;padding:0 12px 11px}
-td{padding:11px 10px;border-top:1px solid var(--line);vertical-align:middle}
-tr:hover td{background:var(--panel2)}
-td.num{color:var(--faint);width:30px;font-variant-numeric:tabular-nums}
-.score{font-variant-numeric:tabular-nums;font-weight:700;width:44px}
-.fit{font-variant-numeric:tabular-nums;font-weight:700;color:var(--accent);width:44px}
+th{text-align:left;color:var(--muted);font-size:10.5px;text-transform:uppercase;
+  letter-spacing:.09em;font-weight:600;padding:0 11px 13px}
+td{padding:13px 11px;border-top:1px solid var(--line);vertical-align:middle}
+tbody tr{transition:background .1s}
+tbody tr:hover td{background:var(--panel2)}
+td.num{color:var(--faint);width:28px;font-variant-numeric:tabular-nums;font-size:12.5px}
+.score{font-variant-numeric:tabular-nums;font-weight:700;width:42px;letter-spacing:-.02em}
+.fit{font-variant-numeric:tabular-nums;font-weight:700;color:var(--accent);width:42px}
 .tier{font-size:12px;color:var(--violet);white-space:nowrap}
 .ctype{font-size:12px;color:var(--muted);white-space:nowrap}
 .ctype.staffing{color:var(--amber)}
-.why{color:var(--muted);font-size:12.5px;max-width:280px;display:inline-block}
-.dq{color:#ff7a7a;font-size:12.5px;font-weight:600;max-width:280px;display:inline-block}
-.ctxpre{background:var(--panel2);border:1px solid var(--line2);border-radius:9px;
-  padding:12px 13px;font-size:12px;line-height:1.5;white-space:pre-wrap;
+.why{color:var(--muted);font-size:12.5px;max-width:300px;display:inline-block;line-height:1.45}
+.dq{color:var(--red);font-size:12.5px;font-weight:560;max-width:300px;display:inline-block;line-height:1.45}
+.ctxpre{background:var(--panel2);border:1px solid var(--line2);border-radius:10px;
+  padding:13px 14px;font-size:12px;line-height:1.55;white-space:pre-wrap;
   color:var(--muted);max-height:190px;overflow:auto;margin:0}
-.company{font-weight:600;white-space:nowrap}
+.company{font-weight:600;white-space:nowrap;letter-spacing:-.01em}
 .cname.loved{color:var(--accent)}
 .love{margin-left:9px;cursor:pointer;color:var(--faint);font-size:13px;opacity:0;
   transition:opacity .12s, color .12s, transform .1s;user-select:none;vertical-align:middle}
-tr:hover .love{opacity:.55}
-.love:hover{color:#ff5a7a}
+tr:hover .love{opacity:.5}
+.love:hover{color:var(--red)}
 .love:active{transform:scale(1.3)}
-.love.on{opacity:1;color:#ff5a7a}
-.role{color:var(--text);max-width:300px}
+.love.on{opacity:1;color:var(--red)}
+.role{color:var(--text);max-width:310px}
 .loc{color:var(--muted);font-size:13px;max-width:180px}
-td a{white-space:nowrap}
-.pill{display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;
-  font-weight:600;border:1px solid transparent}
-.pill.auto{color:var(--green);background:rgba(84,192,122,.10);border-color:rgba(84,192,122,.28)}
-.pill.confirm{color:var(--amber);background:rgba(214,164,74,.10);border-color:rgba(214,164,74,.28)}
-.pill.manual{color:var(--muted);background:rgba(123,132,148,.08);border-color:var(--line2)}
-.empty{color:var(--muted);padding:36px 0;text-align:center}
+td a{white-space:nowrap;font-size:13px}
+.pill{display:inline-block;padding:3px 11px;border-radius:999px;font-size:11.5px;
+  font-weight:600;border:1px solid transparent;letter-spacing:.01em}
+.pill.auto{color:var(--green);background:rgba(91,196,139,.10);border-color:rgba(91,196,139,.26)}
+.pill.confirm{color:var(--amber);background:rgba(224,172,94,.10);border-color:rgba(224,172,94,.26)}
+.pill.manual{color:var(--muted);background:rgba(139,147,161,.08);border-color:var(--line2)}
+.empty{color:var(--muted);padding:44px 0;text-align:center}
+.pager{display:flex;align-items:center;justify-content:center;gap:20px;
+  margin-top:20px;font-size:13px;color:var(--muted)}
+.pager .faint{color:var(--faint)}
+.pager .pageno{font-variant-numeric:tabular-nums}
 
-.brandwrap{display:flex;flex-direction:column;gap:4px}
-.toolbar{display:flex;gap:10px;align-items:center}
+.brandwrap{display:flex;flex-direction:column;gap:5px}
+.toolbar{display:flex;gap:9px;align-items:center}
 .tool-btn{background:var(--panel);border:1px solid var(--line2);border-radius:999px;
-  padding:9px 15px;font-size:13px;font-weight:600;color:var(--text);cursor:pointer;
-  display:flex;align-items:center;gap:6px;transition:border-color .15s, background .15s}
+  padding:9px 15px;font-size:13px;font-weight:560;color:var(--text);cursor:pointer;
+  display:flex;align-items:center;gap:6px;transition:border-color .14s, background .14s}
 .tool-btn:hover{border-color:var(--accent);background:var(--panel2)}
-.heart-btn{width:42px;height:42px;border-radius:50%;background:var(--panel);
+.heart-btn{width:40px;height:40px;border-radius:50%;background:var(--panel);
   border:1px solid var(--line2);display:flex;align-items:center;justify-content:center;
-  cursor:pointer;color:#ff5a7a;font-size:18px;transition:border-color .15s, background .15s}
-.heart-btn:hover{border-color:#ff5a7a;background:var(--panel2)}
-.overlay{position:fixed;inset:0;background:rgba(4,6,10,.66);backdrop-filter:blur(2px);
-  display:none;align-items:flex-start;justify-content:center;z-index:30;padding-top:13vh}
+  cursor:pointer;color:var(--red);font-size:17px;transition:border-color .14s, background .14s}
+.heart-btn:hover{border-color:var(--red);background:var(--panel2)}
+.overlay{position:fixed;inset:0;background:rgba(4,6,10,.7);backdrop-filter:blur(4px);
+  display:none;align-items:flex-start;justify-content:center;z-index:30;padding-top:9vh}
 #favtoggle:checked ~ .fav-ov{display:flex}
 #preftoggle:checked ~ .pref-ov{display:flex}
 #ctxtoggle:checked ~ .ctx-ov{display:flex}
 .chips{display:flex;flex-wrap:wrap;gap:8px}
 .chip{background:var(--panel2);border:1px solid var(--line2);border-radius:999px;
-  padding:6px 8px 6px 13px;font-size:13px;font-weight:600;display:flex;align-items:center;gap:9px}
-.chip .love{opacity:1;margin:0;color:#ff5a7a;font-size:14px}
-.modal{background:var(--panel);border:1px solid var(--line2);border-radius:16px;
-  padding:22px 24px;width:min(600px,92vw);position:relative;
-  max-height:84vh;overflow:auto;box-shadow:0 24px 60px rgba(0,0,0,.5)}
+  padding:6px 8px 6px 13px;font-size:13px;font-weight:560;display:flex;align-items:center;gap:9px}
+.chip .love{opacity:1;margin:0;color:var(--red);font-size:14px}
+.modal{background:var(--panel);border:1px solid var(--line2);border-radius:18px;
+  padding:24px 26px;width:min(600px,92vw);position:relative;
+  max-height:84vh;overflow:auto;box-shadow:0 30px 80px rgba(0,0,0,.55)}
 .filein{background:var(--panel2);border:1px dashed var(--line2);border-radius:10px;
-  padding:10px 12px;font-size:13px;color:var(--muted);width:100%}
-.overlay{padding-top:9vh}
-.modal-close{position:absolute;top:11px;right:16px;cursor:pointer;color:var(--muted);
+  padding:11px 13px;font-size:13px;color:var(--muted);width:100%}
+.modal-close{position:absolute;top:13px;right:17px;cursor:pointer;color:var(--muted);
   font-size:22px;line-height:1;text-decoration:none}
 .modal-close:hover{color:var(--text)}
-.modal-h{font-size:11px;text-transform:uppercase;letter-spacing:.09em;
+.modal-h{font-size:11px;text-transform:uppercase;letter-spacing:.11em;
   color:var(--muted);margin:0 0 14px;font-weight:600}
 """
 
 _TIER_LABEL = {"voice_speech": "voice", "ai_ml": "ai/ml", "swe_backend": "swe"}
 _TYPE_LABEL = {"yc_early": "YC/early", "funded_startup": "startup", "unicorn": "unicorn",
                "public_corp": "public", "staffing_proxy": "staffing", "unknown": "—"}
+_PAGE = 20
+
+
+def _pager(page: int, has_next: bool, base: dict) -> str:
+    from urllib.parse import urlencode
+    if page == 0 and not has_next:
+        return ""
+    prev = (f"<a href='?{urlencode({**base, 'page': page - 1})}'>← prev</a>"
+            if page > 0 else "<span class=faint>← prev</span>")
+    nxt = (f"<a href='?{urlencode({**base, 'page': page + 1})}'>next →</a>"
+           if has_next else "<span class=faint>next →</span>")
+    return f"<div class=pager>{prev}<span class=pageno>page {page + 1}</span>{nxt}</div>"
 
 
 def _toggles() -> str:
@@ -227,6 +261,10 @@ def _pref_modal() -> str:
 def _page(body: str) -> str:
     return (f"<!doctype html><html lang=en><head><meta charset=utf-8>"
             f"<meta name=viewport content='width=device-width,initial-scale=1'>"
+            f"<link rel=preconnect href='https://fonts.googleapis.com'>"
+            f"<link rel=preconnect href='https://fonts.gstatic.com' crossorigin>"
+            f"<link rel=stylesheet href='https://fonts.googleapis.com/css2?"
+            f"family=Inter:wght@400;500;600;700&display=swap'>"
             f"<title>jobhunt</title><style>{CSS}</style></head>"
             f"<body>{_toggles()}{_fav_modal()}{_pref_modal()}{_context_modal()}"
             f"<div class=wrap>{body}</div>{_JS}</body></html>")
@@ -285,18 +323,19 @@ def _filters(tier: str, min_score: int, fresh: bool, sort: str, view: str,
         f"<option value='{v}'{' selected' if v == view else ''}>{lbl}</option>"
         for v, lbl in vopts)
     fchk = " checked" if fresh else ""
+    is_open = " open" if (view or fresh or tier) else ""
     return (
-        "<div class=panel><h2>Jobs</h2>"
+        f"<details class=panel{is_open}><summary>Filters</summary>"
         "<form class=row method=get action='/'>"
         f"<select name=view>{vsel}</select>"
         f"<select name=tier>{tsel}</select>"
-        f"<input type=number name=min_score value={min_score} style='width:95px' title='min score'>"
+        f"<input type=number name=min_score value={min_score} style='width:92px' title='min score'>"
         f"<label class=chk><input type=checkbox name=fresh value=1{fchk}> last 24h</label>"
         f"<label class=chk>min fit <input type=number name=min_fit value={min_fit} "
-        f"style='width:66px' title='AI fit cutoff (apply-ready)'></label>"
+        f"style='width:64px' title='AI fit cutoff (apply-ready)'></label>"
         f"<input type=hidden name=sort value='{_e(sort)}'>"
-        "<button type=submit>Filter</button>"
-        "</form></div>"
+        "<button type=submit>Apply filters</button>"
+        "</form></details>"
     )
 
 
@@ -352,7 +391,7 @@ def _table(rows, fitcol, loved: set, show_why: bool = False) -> str:
 
 def _render(tier: str, min_score: int, fresh: bool, sort: str,
             preference: str = "", notice: str = "", view: str = "",
-            min_fit: int = 50) -> str:
+            min_fit: int = 50, page: int = 0) -> str:
     from .core.favorites import load_preference, loved_companies
     if not preference:
         preference = load_preference()
@@ -364,21 +403,21 @@ def _render(tier: str, min_score: int, fresh: bool, sort: str,
         p: list = []
         if tier:
             q += " AND tier = ?"; p.append(tier)
-        q += " ORDER BY analyzed_at DESC, afit DESC LIMIT 60"
+        q += " ORDER BY analyzed_at DESC, afit DESC"
         fitcol = "afit"
     elif view == "apply":
         q = "SELECT * FROM jobs WHERE apply_ok = 1 AND afit >= ? AND status != 'closed'"
         p: list = [min_fit]
         if tier:
             q += " AND tier = ?"; p.append(tier)
-        q += " ORDER BY afit DESC LIMIT 200"
+        q += " ORDER BY afit DESC"
         fitcol = "afit"
     elif view == "rejected":
         q = "SELECT * FROM jobs WHERE analysis IS NOT NULL AND apply_ok = 0 AND status != 'closed'"
         p = []
         if tier:
             q += " AND tier = ?"; p.append(tier)
-        q += " ORDER BY afit DESC LIMIT 200"
+        q += " ORDER BY afit DESC"
         fitcol = "afit"
     else:
         q = "SELECT * FROM jobs WHERE score >= ? AND status != 'closed'"
@@ -391,28 +430,34 @@ def _render(tier: str, min_score: int, fresh: bool, sort: str,
             q += " ORDER BY fit IS NULL, fit DESC, score DESC"; fitcol = "fit"
         else:
             q += " ORDER BY score DESC, fetched_at DESC"; fitcol = None
-        q += " LIMIT 200"
 
+    q += f" LIMIT {_PAGE + 1} OFFSET {page * _PAGE}"
     with db.connect() as conn:
         rows = conn.execute(q, p).fetchall()
         total = conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
         fresh_n = conn.execute(
             "SELECT COUNT(*) FROM jobs WHERE fetched_at >= datetime('now','-24 hours')"
         ).fetchone()[0]
+    has_next = len(rows) > _PAGE
+    rows = rows[:_PAGE]
+    base = {"view": view, "tier": tier, "min_score": min_score,
+            "fresh": 1 if fresh else 0, "sort": sort, "min_fit": min_fit}
     notice_html = f"<div class=result>{notice}</div>" if notice else ""
     return _page(
         _header(total, fresh_n)
         + notice_html
         + _check_form()
         + _filters(tier, min_score, fresh, sort, view, min_fit)
-        + "<div class=panel>" + _table(rows, fitcol, loved, show_why) + "</div>"
+        + "<div class=panel>" + _table(rows, fitcol, loved, show_why)
+        + _pager(page, has_next, base) + "</div>"
     )
 
 
 @app.get("/", response_class=HTMLResponse)
 def index(tier: str = "", min_score: int = 40, fresh: int = 0, sort: str = "",
-          view: str = "", min_fit: int = 50):
-    return _render(tier, min_score, bool(fresh), sort, view=view, min_fit=min_fit)
+          view: str = "", min_fit: int = 50, page: int = 0):
+    return _render(tier, min_score, bool(fresh), sort, view=view, min_fit=min_fit,
+                   page=max(0, page))
 
 
 @app.post("/resume", response_class=HTMLResponse)
