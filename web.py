@@ -401,26 +401,29 @@ td a:hover{
   padding-bottom:20px;border-bottom:1px solid var(--line)}
 .flowtop h1{font-size:19px;font-weight:700;letter-spacing:-.02em;margin:0}
 .flowcanvas{background-image:radial-gradient(var(--line2) .8px, transparent .8px);
-  background-size:22px 22px;border:1px solid var(--line);border-radius:16px;padding:26px 22px}
-.flow{display:flex;align-items:stretch;gap:0;flex-wrap:wrap;row-gap:16px}
-.fnode{flex:1;min-width:180px;background:var(--panel);border:1px solid var(--line);
-  border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:11px}
+  background-size:24px 24px;border:1px solid var(--line);border-radius:18px;
+  padding:52px 40px;display:flex;align-items:center;min-height:380px}
+.flow{display:flex;align-items:stretch;gap:0;flex-wrap:wrap;row-gap:22px;width:100%}
+.fnode{flex:1;min-width:205px;background:var(--panel);border:1px solid var(--line);
+  border-radius:14px;padding:24px 22px;display:flex;flex-direction:column;gap:14px;
+  min-height:250px;box-shadow:0 4px 16px rgba(0,0,0,.25)}
 .fnode.ready{border-color:var(--accent);box-shadow:0 0 30px var(--accent-soft)}
 .fhead{font-size:10.5px;text-transform:uppercase;letter-spacing:.09em;color:var(--muted);
   font-weight:600;display:flex;align-items:center;gap:8px}
 .fnum{width:19px;height:19px;border-radius:50%;background:var(--accent);color:#06101f;
   display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0}
-.fbig{font-size:34px;font-weight:700;letter-spacing:-.03em;font-variant-numeric:tabular-nums;line-height:1}
+.fbig{font-size:42px;font-weight:700;letter-spacing:-.03em;font-variant-numeric:tabular-nums;line-height:1;margin-top:4px}
 .fdesc{font-size:12px;color:var(--muted);line-height:1.45}
 .fbtn,.fnode button{font-size:12.5px;text-align:center;border-radius:8px;padding:8px 12px;cursor:pointer}
 .fbtn{color:var(--accent);border:1px solid var(--line2);background:transparent;transition:border-color .14s}
 .fbtn:hover{border-color:var(--accent)}
 .fnode textarea{font-size:12px;line-height:1.5}
-.fconn{align-self:center;width:34px;height:2px;flex-shrink:0;border-radius:2px;
-  background:linear-gradient(90deg,transparent,var(--accent),transparent);
-  background-size:200% 100%;animation:flowmove 1.5s linear infinite}
-@keyframes flowmove{0%{background-position:150% 0}100%{background-position:-150% 0}}
-@media(max-width:760px){.fconn{display:none}.fnode{min-width:45%}}
+.fconn{align-self:center;position:relative;width:62px;height:2px;flex-shrink:0;
+  background:repeating-linear-gradient(90deg,var(--line2) 0 5px,transparent 5px 11px)}
+.fconn::after{content:'';position:absolute;top:-3px;left:0;width:8px;height:8px;border-radius:50%;
+  background:var(--accent);box-shadow:0 0 10px var(--accent);animation:packet 1.9s linear infinite}
+@keyframes packet{0%{left:0;opacity:0}12%{opacity:1}88%{opacity:1}100%{left:calc(100% - 8px);opacity:0}}
+@media(max-width:820px){.fconn{display:none}.fnode{min-width:44%}}
 .hmenu .menu-list{top:calc(100% - 4px)}
 th.hdd{padding-bottom:0}
 a.cname{color:var(--text);transition:color .12s}
