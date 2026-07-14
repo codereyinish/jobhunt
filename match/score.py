@@ -60,15 +60,8 @@ def score_job(job: dict, cfg: dict) -> tuple[int, str | None]:
         if any(k.lower() in title for k in spec["keywords"]) and spec["weight"] > weight:
             tier, weight = name, spec["weight"]
 
-    # If the title is generic (e.g. "Software Engineer"), infer a niche tier
-    # only when the description mentions it strongly (>= 2 distinct keywords).
-    if tier is None:
-        best = 0
-        for name, spec in tiers.items():
-            hits = sum(1 for k in spec["keywords"] if k.lower() in desc)
-            if hits >= 2 and spec["weight"] > best:
-                tier, best = name, spec["weight"]
-                weight = int(spec["weight"] * 0.6)   # weaker: title didn't confirm
+    # Tier is TITLE-driven only. A voice/AI company's boilerplate must not make
+    # every role "voice" — the title has to actually say it.
     if tier is None:
         return 0, None
 

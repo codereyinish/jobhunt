@@ -391,6 +391,10 @@ td a:hover{
 .hmenu>summary:hover{color:var(--text)}
 .hmenu[open]>summary{color:var(--accent)}
 .hmenu.active>summary{color:var(--accent)}
+.srch-list{padding:8px}
+.srch{display:flex;gap:6px}
+.srch input{min-width:150px;font-size:12.5px}
+.srch button{padding:8px 12px;font-size:12.5px}
 .hmenu .menu-list{top:calc(100% - 4px)}
 th.hdd{padding-bottom:0}
 a.cname{color:var(--text);transition:color .12s}
@@ -654,9 +658,21 @@ def _hmenu(label: str, param: str, cur, opts, base: dict) -> str:
             f"<div class=menu-list>{links}</div></details>")
 
 
+def _search_menu(label: str, param: str, cur: str, base: dict) -> str:
+    active = " active" if cur else ""
+    summ = f"{label}: {_e(cur)}" if cur else label
+    hidden = "".join(f"<input type=hidden name={k} value='{_e(v)}'>"
+                     for k, v in base.items() if k != param and str(v) not in ("", "0"))
+    form = (f"<form class=srch method=get action='/'>{hidden}"
+            f"<input type=text name={param} value=\"{_e(cur)}\" placeholder='Type a company…'>"
+            f"<button type=submit>Go</button></form>")
+    return (f"<details class='menu hmenu{active}' name=hdr><summary>{summ}</summary>"
+            f"<div class='menu-list srch-list'>{form}</div></details>")
+
+
 def _table(rows, fitcol, loved: set, show_why: bool = False, base: dict | None = None,
            tier: str = "", sort: str = "", ctype: str = "", locf: str = "", af: str = "",
-           loc_states=None) -> str:
+           loc_states=None, company: str = "") -> str:
     base = base or {}
     fit_h = "<th>Fit</th>" if fitcol else ""
     why_h = "<th>Why</th>" if show_why else ""
@@ -674,7 +690,8 @@ def _table(rows, fitcol, loved: set, show_why: bool = False, base: dict | None =
                      ("confirm", "Confirm"), ("manual", "Manual")], base)
     head = (f"<table><thead><tr><th></th>{fit_h}<th class=hdd>{score_h}</th>"
             f"<th class=hdd>{tier_h}</th><th class=hdd>{type_h}</th>"
-            f"<th>Company</th><th>Role</th><th class=hdd>{loc_h}</th>{why_h}"
+            f"<th class=hdd>{_search_menu('Company', 'company', company, base)}</th>"
+            f"<th>Role</th><th class=hdd>{loc_h}</th>{why_h}"
             f"<th class=hdd>{apply_h}</th><th></th>"
             "</tr></thead><tbody>")
     if not rows:
@@ -753,7 +770,7 @@ def _review_cards(rows) -> str:
 def _render(tier: str, min_score: int, fresh: bool, sort: str,
             preference: str = "", notice: str = "", view: str = "",
             min_fit: int = 50, page: int = 0, ctype: str = "",
-            locf: str = "", af: str = "") -> str:
+            locf: str = "", af: str = "", company: str = "") -> str:
     from .core.favorites import load_preference, loved_companies
     if not preference:
         preference = load_preference()
@@ -789,6 +806,8 @@ def _render(tier: str, min_score: int, fresh: bool, sort: str,
             q += " AND tier = ?"; p.append(tier)
         if ctype:
             q += " AND company_type = ?"; p.append(ctype)
+        if company:
+            q += " AND company LIKE ?"; p.append(f"%{company}%")
         if locf == "remote":
             q += " AND remote = 1"
         elif locf == "hybrid":
@@ -826,7 +845,7 @@ def _render(tier: str, min_score: int, fresh: bool, sort: str,
     rows = rows[:_PAGE]
     base = {"view": view, "tier": tier, "min_score": min_score,
             "fresh": 1 if fresh else 0, "sort": sort, "min_fit": min_fit,
-            "ctype": ctype, "locf": locf, "af": af}
+            "ctype": ctype, "locf": locf, "af": af, "company": company}
     notice_html = f"<div class=result>{notice}</div>" if notice else ""
     tabs = _tabs(view, base)
     if view == "review":
@@ -834,7 +853,7 @@ def _render(tier: str, min_score: int, fresh: bool, sort: str,
     else:
         content = (tabs + "<div class=panel>"
                    + _table(rows, fitcol, loved, show_why, base, tier, sort, ctype, locf, af,
-                            avail_states)
+                            avail_states, company)
                    + _pager(page, has_next, base) + "</div>")
     return _page(
         _header(total, fresh_n)
@@ -847,9 +866,9 @@ def _render(tier: str, min_score: int, fresh: bool, sort: str,
 @app.get("/", response_class=HTMLResponse)
 def index(tier: str = "", min_score: int = 40, fresh: int = 0, sort: str = "",
           view: str = "", min_fit: int = 50, page: int = 0, ctype: str = "",
-          locf: str = "", af: str = ""):
+          locf: str = "", af: str = "", company: str = ""):
     return _render(tier, min_score, bool(fresh), sort, view=view, min_fit=min_fit,
-                   page=max(0, page), ctype=ctype, locf=locf, af=af)
+                   page=max(0, page), ctype=ctype, locf=locf, af=af, company=company)
 
 
 @app.post("/resume", response_class=HTMLResponse)

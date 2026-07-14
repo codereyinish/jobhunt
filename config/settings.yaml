@@ -27,10 +27,12 @@ locations:
 # Tiered keyword matching. A job's tier = the highest-priority ring it hits.
 # You target AI first, voice/speech/transcription sharpest, SWE/backend as floor.
 tiers:
-  voice_speech:               # tier 1 — sharpest focus, ranked highest
+  voice_speech:               # tier 1 — ASR / transcription / speech-to-text (NOT audio eng / sound design)
     weight: 100
-    keywords: [speech, voice, asr, transcription, transcribe, audio, "text-to-speech", tts,
-               wake word, speaker, diarization, phonetics, whisper, acoustic, "signal processing"]
+    keywords: [speech, voice, asr, transcription, transcribe, "speech-to-text",
+               "speech to text", whisper, diarization, "speaker recognition", "voice ai",
+               "voice agent", "voice assistant", "conversational ai", "spoken language",
+               "speech model", nlp]
   ai_ml:                      # tier 2
     weight: 60
     keywords: ["machine learning", "ml engineer", "ai engineer", "deep learning", nlp, llm,
@@ -67,7 +69,9 @@ exclude_title_keywords: [sales, marketing, recruiter, "account executive", "cust
                          "trust and safety", legal, "people ", unpaid,
                          mechanical, electrical, civil, hardware, biomedical, chemical,
                          aerospace, "field engineer", manufacturing, "process engineer",
-                         "validation engineer", "systems engineer", "network engineer"]
+                         "validation engineer", "systems engineer", "network engineer",
+                         "audio engineer", "audio engineering", audiovisual, "sound design",
+                         mixing, mastering, foley, "music", "dsp engineer"]
 
 sourcing:
   min_score: 30               # discard anything below this after scoring
