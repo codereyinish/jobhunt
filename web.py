@@ -377,7 +377,8 @@ td a:hover{
 .menu[open]>summary{border-color:var(--accent)}
 .menu-list{position:absolute;top:calc(100% + 6px);left:0;z-index:25;min-width:200px;
   background:var(--panel2);border:1px solid var(--line2);border-radius:11px;padding:6px;
-  box-shadow:0 18px 48px rgba(0,0,0,.55);display:flex;flex-direction:column;gap:2px}
+  box-shadow:0 18px 48px rgba(0,0,0,.55);display:flex;flex-direction:column;gap:2px;
+  max-height:320px;overflow-y:auto}
 .menu-list a{padding:7px 11px;border-radius:7px;font-size:12px;color:var(--text);white-space:nowrap}
 .menu-list a:hover{background:var(--accent);color:#08101f}
 .menu-list a.sel{color:var(--accent)}
@@ -405,6 +406,21 @@ _TIER_LABEL = {"voice_speech": "voice", "ai_ml": "ai/ml", "swe_backend": "swe"}
 _TYPE_LABEL = {"yc_early": "YC/early", "funded_startup": "startup", "unicorn": "unicorn",
                "public_corp": "public", "staffing_proxy": "staffing", "unknown": "—"}
 _PAGE = 20
+_US_STATES = [
+    ("AL", "Alabama"), ("AK", "Alaska"), ("AZ", "Arizona"), ("AR", "Arkansas"),
+    ("CA", "California"), ("CO", "Colorado"), ("CT", "Connecticut"), ("DE", "Delaware"),
+    ("FL", "Florida"), ("GA", "Georgia"), ("HI", "Hawaii"), ("ID", "Idaho"),
+    ("IL", "Illinois"), ("IN", "Indiana"), ("IA", "Iowa"), ("KS", "Kansas"),
+    ("KY", "Kentucky"), ("LA", "Louisiana"), ("ME", "Maine"), ("MD", "Maryland"),
+    ("MA", "Massachusetts"), ("MI", "Michigan"), ("MN", "Minnesota"), ("MS", "Mississippi"),
+    ("MO", "Missouri"), ("MT", "Montana"), ("NE", "Nebraska"), ("NV", "Nevada"),
+    ("NH", "New Hampshire"), ("NJ", "New Jersey"), ("NM", "New Mexico"), ("NY", "New York"),
+    ("NC", "North Carolina"), ("ND", "North Dakota"), ("OH", "Ohio"), ("OK", "Oklahoma"),
+    ("OR", "Oregon"), ("PA", "Pennsylvania"), ("RI", "Rhode Island"), ("SC", "South Carolina"),
+    ("SD", "South Dakota"), ("TN", "Tennessee"), ("TX", "Texas"), ("UT", "Utah"),
+    ("VT", "Vermont"), ("VA", "Virginia"), ("WA", "Washington"), ("WV", "West Virginia"),
+    ("WI", "Wisconsin"), ("WY", "Wyoming"), ("DC", "Washington DC"),
+]
 
 
 def _tabs(view: str, base: dict) -> str:
@@ -637,7 +653,7 @@ def _table(rows, fitcol, loved: set, show_why: bool = False, base: dict | None =
                     ("unicorn", "Unicorn"), ("public_corp", "Public"),
                     ("staffing_proxy", "Staffing"), ("yc_early", "YC")], base)
     loc_h = _hmenu("Location", "locf", locf,
-                   [("", "All"), ("us", "US"), ("remote", "Remote"), ("hybrid", "Hybrid")], base)
+                   [("", "All"), ("remote", "Remote"), ("hybrid", "Hybrid")] + _US_STATES, base)
     apply_h = _hmenu("Apply", "af", af, [("", "All"), ("auto", "Auto"),
                      ("confirm", "Confirm"), ("manual", "Manual")], base)
     head = (f"<table><thead><tr><th></th>{fit_h}<th class=hdd>{score_h}</th>"
@@ -754,10 +770,10 @@ def _render(tier: str, min_score: int, fresh: bool, sort: str,
             q += " AND company_type = ?"; p.append(ctype)
         if locf == "remote":
             q += " AND remote = 1"
-        elif locf == "us":
-            q += " AND remote = 0"
         elif locf == "hybrid":
             q += " AND (lower(location) LIKE '%hybrid%' OR lower(description) LIKE '%hybrid%')"
+        elif locf:                                   # a US state code
+            q += " AND location LIKE ?"; p.append(f"%, {locf}%")
         _auto = ("(source LIKE 'greenhouse%' OR source LIKE 'lever%' OR source LIKE 'ashby%' "
                  "OR source LIKE 'workday%' OR url LIKE '%greenhouse.io%' OR url LIKE '%lever.co%' "
                  "OR url LIKE '%ashbyhq.com%' OR url LIKE '%myworkdayjobs.com%')")
