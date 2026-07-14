@@ -264,7 +264,8 @@ def cmd_analyze(args):
             ok = 1 if a.get("works_for_me") else 0    # hard gates only; fit is a live UI filter
             kept += ok
             conn.execute(
-                "UPDATE jobs SET company_type=?, afit=?, apply_ok=?, analysis=? WHERE id=?",
+                "UPDATE jobs SET company_type=?, afit=?, apply_ok=?, analysis=?, "
+                "analyzed_at=datetime('now') WHERE id=?",
                 [a.get("company_type", "unknown"), fit, ok, json.dumps(a), jid])
         top = conn.execute(
             "SELECT company, title, company_type, afit, analysis FROM jobs "

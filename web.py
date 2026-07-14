@@ -3,7 +3,7 @@ from __future__ import annotations
 import html
 import json
 
-from fastapi import FastAPI, Form
+from fastapi import FastAPI, File, Form, UploadFile
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from .apply.router import apply_path, classify_url
@@ -98,7 +98,8 @@ td a{white-space:nowrap}
 .pill.manual{color:var(--muted);background:rgba(123,132,148,.08);border-color:var(--line2)}
 .empty{color:var(--muted);padding:36px 0;text-align:center}
 
-.toolbar{position:fixed;top:20px;right:24px;z-index:20;display:flex;gap:10px;align-items:center}
+.brandwrap{display:flex;flex-direction:column;gap:4px}
+.toolbar{display:flex;gap:10px;align-items:center}
 .tool-btn{background:var(--panel);border:1px solid var(--line2);border-radius:999px;
   padding:9px 15px;font-size:13px;font-weight:600;color:var(--text);cursor:pointer;
   display:flex;align-items:center;gap:6px;transition:border-color .15s, background .15s}
@@ -117,8 +118,11 @@ td a{white-space:nowrap}
   padding:6px 8px 6px 13px;font-size:13px;font-weight:600;display:flex;align-items:center;gap:9px}
 .chip .love{opacity:1;margin:0;color:#ff5a7a;font-size:14px}
 .modal{background:var(--panel);border:1px solid var(--line2);border-radius:16px;
-  padding:22px 24px;width:min(560px,92vw);position:relative;
-  box-shadow:0 24px 60px rgba(0,0,0,.5)}
+  padding:22px 24px;width:min(600px,92vw);position:relative;
+  max-height:84vh;overflow:auto;box-shadow:0 24px 60px rgba(0,0,0,.5)}
+.filein{background:var(--panel2);border:1px dashed var(--line2);border-radius:10px;
+  padding:10px 12px;font-size:13px;color:var(--muted);width:100%}
+.overlay{padding-top:9vh}
 .modal-close{position:absolute;top:11px;right:16px;cursor:pointer;color:var(--muted);
   font-size:22px;line-height:1;text-decoration:none}
 .modal-close:hover{color:var(--text)}
@@ -131,11 +135,14 @@ _TYPE_LABEL = {"yc_early": "YC/early", "funded_startup": "startup", "unicorn": "
                "public_corp": "public", "staffing_proxy": "staffing", "unknown": "—"}
 
 
+def _toggles() -> str:
+    return ("<input type=checkbox id=favtoggle hidden>"
+            "<input type=checkbox id=preftoggle hidden>"
+            "<input type=checkbox id=ctxtoggle hidden>")
+
+
 def _toolbar() -> str:
     return (
-        "<input type=checkbox id=favtoggle hidden>"
-        "<input type=checkbox id=preftoggle hidden>"
-        "<input type=checkbox id=ctxtoggle hidden>"
         "<div class=toolbar>"
         "<label for=ctxtoggle class=tool-btn>&#9998;&nbsp; Resume</label>"
         "<label for=preftoggle class=tool-btn>&#10022;&nbsp; Preference</label>"
@@ -145,21 +152,28 @@ def _toolbar() -> str:
 
 
 def _context_modal() -> str:
-    from .core.config import resume_text
+    from .core.config import analyze_prompt, resume_text
     from .match.analyze import _profile_block
-    resume = resume_text()
+    resume, prompt = resume_text(), analyze_prompt()
     return (
         "<div class='overlay ctx-ov'><div class=modal>"
         "<label for=ctxtoggle class=modal-close>&times;</label>"
-        "<div class=modal-h>What Claude sees — your profile</div>"
-        f"<pre class=ctxpre>{_e(_profile_block())}</pre>"
-        "<div class=modal-h style='margin-top:18px'>Your resume &nbsp;·&nbsp; edit &amp; save</div>"
-        "<form class=col method=post action='/resume'>"
-        f"<textarea name=resume rows=12 style='width:100%' "
-        f"placeholder='Paste your resume as plain text — Claude compares it to every JD…'>"
-        f"{_e(resume)}</textarea>"
+        "<div class=modal-h>Your resume</div>"
+        "<form class=col method=post action='/resume' enctype='multipart/form-data'>"
+        "<input class=filein type=file name=file accept='.txt,.md,.pdf'>"
+        f"<textarea name=resume rows=9 style='width:100%' "
+        f"placeholder='…or paste it as plain text'>{_e(resume)}</textarea>"
         "<div class=row><button type=submit>Save resume</button>"
-        "<span class=hint>then run <code>analyze --force</code> to re-screen with it</span></div>"
+        "<span class=hint>upload a .pdf/.txt or paste · then <code>analyze --force</code></span></div>"
+        "</form>"
+        "<div class=modal-h style='margin-top:22px'>What Claude sees — profile</div>"
+        f"<pre class=ctxpre>{_e(_profile_block())}</pre>"
+        "<div class=modal-h style='margin-top:22px'>Claude prompt · advanced</div>"
+        "<form class=col method=post action='/prompt'>"
+        f"<textarea name=prompt rows=10 style='width:100%;font-family:ui-monospace,monospace;"
+        f"font-size:12px'>{_e(prompt)}</textarea>"
+        "<div class=row><button type=submit>Save prompt</button>"
+        "<span class=hint>keep &lt;&lt;PROFILE&gt;&gt; &lt;&lt;RESUME&gt;&gt; &lt;&lt;JOBS&gt;&gt; markers</span></div>"
         "</form></div></div>"
     )
 
@@ -214,7 +228,7 @@ def _page(body: str) -> str:
     return (f"<!doctype html><html lang=en><head><meta charset=utf-8>"
             f"<meta name=viewport content='width=device-width,initial-scale=1'>"
             f"<title>jobhunt</title><style>{CSS}</style></head>"
-            f"<body>{_toolbar()}{_fav_modal()}{_pref_modal()}{_context_modal()}"
+            f"<body>{_toggles()}{_fav_modal()}{_pref_modal()}{_context_modal()}"
             f"<div class=wrap>{body}</div>{_JS}</body></html>")
 
 
@@ -241,8 +255,10 @@ def _header(total: int | None = None, fresh: int | None = None) -> str:
         bits = [f"<b>{total}</b> tracked"]
         if fresh:
             bits.append(f"<b>{fresh}</b> new · 24h")
-        meta = f"<span class=meta>{' &nbsp;·&nbsp; '.join(bits)}</span>"
-    return f"<header><div class=brand>jobhunt<span class=dot></span></div>{meta}</header>"
+        meta = f"<div class=meta>{' &nbsp;·&nbsp; '.join(bits)}</div>"
+    return (f"<header><div class=brandwrap>"
+            f"<div class=brand>jobhunt<span class=dot></span></div>{meta}</div>"
+            f"{_toolbar()}</header>")
 
 
 def _check_form(url: str = "") -> str:
@@ -263,7 +279,8 @@ def _filters(tier: str, min_score: int, fresh: bool, sort: str, view: str,
     tsel = "".join(
         f"<option value='{v}'{' selected' if v == tier else ''}>{lbl}</option>"
         for v, lbl in topts)
-    vopts = [("", "all jobs"), ("apply", "✓ apply-ready"), ("rejected", "✕ rejected")]
+    vopts = [("", "all jobs"), ("apply", "✓ apply-ready"), ("rejected", "✕ rejected"),
+             ("call", "◷ last analysis")]
     vsel = "".join(
         f"<option value='{v}'{' selected' if v == view else ''}>{lbl}</option>"
         for v, lbl in vopts)
@@ -341,8 +358,15 @@ def _render(tier: str, min_score: int, fresh: bool, sort: str,
         preference = load_preference()
     loved = loved_companies()
 
-    show_why = view in ("apply", "rejected")
-    if view == "apply":
+    show_why = view in ("apply", "rejected", "call")
+    if view == "call":
+        q = "SELECT * FROM jobs WHERE analysis IS NOT NULL AND status != 'closed'"
+        p: list = []
+        if tier:
+            q += " AND tier = ?"; p.append(tier)
+        q += " ORDER BY analyzed_at DESC, afit DESC LIMIT 60"
+        fitcol = "afit"
+    elif view == "apply":
         q = "SELECT * FROM jobs WHERE apply_ok = 1 AND afit >= ? AND status != 'closed'"
         p: list = [min_fit]
         if tier:
@@ -392,12 +416,23 @@ def index(tier: str = "", min_score: int = 40, fresh: int = 0, sort: str = "",
 
 
 @app.post("/resume", response_class=HTMLResponse)
-def resume_route(resume: str = Form("")):
-    from .core.config import save_resume
-    save_resume(resume)
+async def resume_route(resume: str = Form(""), file: UploadFile = File(None)):
+    from .core.config import resume_from_upload, save_resume
+    if file is not None and file.filename:
+        save_resume(resume_from_upload(file.filename, await file.read()))
+    else:
+        save_resume(resume)
     return _render("", 40, False, "", notice=(
         "Resume saved. Run <code>jobhunt analyze --force</code> to re-screen "
         "every job against it."))
+
+
+@app.post("/prompt", response_class=HTMLResponse)
+def prompt_route(prompt: str = Form("")):
+    from .core.config import save_prompt
+    save_prompt(prompt)
+    return _render("", 40, False, "", notice=(
+        "Prompt saved. Run <code>jobhunt analyze --force</code> to use it."))
 
 
 @app.post("/love")

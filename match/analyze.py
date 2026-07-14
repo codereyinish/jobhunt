@@ -3,6 +3,39 @@ from __future__ import annotations
 from ..core.config import profile, resume_text
 from .llm import _extract_array, _run
 
+# Editable via the UI (config/analyze_prompt.txt). Must keep the three markers.
+DEFAULT_PROMPT = """\
+You predict, for ONE candidate, the realistic odds of GETTING each job (landing an \
+interview/offer) IF they apply — by comparing their RESUME to the role's real \
+requirements and how competitive it is. Titles lie; read the requirements and \
+responsibilities, then judge honestly.
+
+CANDIDATE PROFILE:
+<<PROFILE>>
+<<RESUME>>
+For EACH job return an object with:
+- id
+- company_type: yc_early | funded_startup | unicorn | public_corp | staffing_proxy | unknown
+- requires_phd: true ONLY if a PhD is REQUIRED/mandatory. If 'PhD preferred' or 'or \
+equivalent experience', set false.
+- min_years: the REQUIRED minimum years. Treat 'preferred'/'a plus' as not required (0). \
+Use the lower bound of any range.
+- sponsorship: offers | silent | no
+- works_for_me: true/false — can THIS candidate realistically apply? Only false for a HARD \
+bar: a truly required PhD they lack, clearly more required years than they have, or \
+explicit 'no sponsorship now or in future'. Do NOT reject on merely 'preferred' quals. \
+F-1 OPT grants ~3 years, so 'must be authorized to work' is FINE.
+- fit: 0-100 — realistic probability of an interview/offer if they apply, given their \
+resume vs this role's bar AND typical competition. Be honest and calibrated.
+- disqualifiers: array of short strings (empty if none)
+- reason: one short sentence citing the key resume-vs-requirement evidence
+
+Return ONLY a JSON array, no prose.
+
+JOBS:
+
+<<JOBS>>"""
+
 # Lines worth keeping — they carry the real gating signals. Everything else
 # (mission, benefits, boilerplate) is dropped to save tokens + reduce noise.
 _SIGNAL = ("phd", "ph.d", "doctorate", "bachelor", "master", "degree", "year", "yrs",
@@ -41,45 +74,20 @@ def analyze(jobs: list[dict], timeout: int = 300) -> dict[int, dict]:
     """Deep-read each job's requirements vs the candidate's profile AND resume."""
     if not jobs:
         return {}
+    from ..core.config import analyze_prompt
     resume = resume_text()
-    resume_block = (f"\nCANDIDATE RESUME (compare their real experience to each JD):\n"
+    resume_block = (f"CANDIDATE RESUME (compare their real experience to each JD):\n"
                     f"{resume[:4500]}\n" if resume
-                    else "\n(No resume provided — judge on the profile facts above.)\n")
-    blocks = [
+                    else "(No resume provided — judge on the profile facts above.)\n")
+    blocks = "\n".join(
         f"### JOB {j['id']}\nTitle: {j.get('title', '')}\nCompany: {j.get('company', '')}\n"
         f"Location: {j.get('location', '')}\nRequirements:\n{_snippet(j.get('description', ''))}"
         for j in jobs
-    ]
-    prompt = (
-        "You predict, for ONE candidate, the realistic odds of GETTING each job "
-        "(landing an interview/offer) IF they apply — by comparing their RESUME to the "
-        "role's real requirements and how competitive it is. Titles lie; read the "
-        "requirements and responsibilities, then judge honestly.\n\n"
-        f"CANDIDATE PROFILE:\n{_profile_block()}\n{resume_block}\n"
-        "For EACH job return an object with:\n"
-        "- id\n"
-        "- company_type: yc_early | funded_startup | unicorn | public_corp | "
-        "staffing_proxy | unknown\n"
-        "- requires_phd: true ONLY if a PhD is REQUIRED/mandatory. If it says "
-        "'PhD preferred', 'PhD or equivalent experience', or lists it as a plus, "
-        "set false (a preferred qualification is not a hard bar).\n"
-        "- min_years: the REQUIRED minimum years. Treat 'preferred'/'a plus' as not "
-        "required (0). Use the lower bound of any range.\n"
-        "- sponsorship: offers | silent | no\n"
-        "- works_for_me: true/false — can THIS candidate realistically apply? Only set "
-        "false for a HARD bar: a truly required PhD they lack, a required minimum of "
-        "clearly more years than they have, or explicit 'no sponsorship now or in "
-        "future'. Do NOT reject on merely 'preferred' qualifications. F-1 OPT grants "
-        "~3 years, so 'must be authorized to work' is FINE.\n"
-        "- fit: 0-100 — realistic probability the candidate gets an interview/offer if "
-        "they apply, given their resume vs this role's bar AND typical competition. Be "
-        "honest and calibrated: a perfect-on-paper match at a hyper-competitive lab is "
-        "still not 90; a solid match at a normal company can be higher.\n"
-        "- disqualifiers: array of short strings (empty if none)\n"
-        "- reason: one short sentence citing the key resume-vs-requirement evidence\n\n"
-        "Return ONLY a JSON array, no prose.\n\n"
-        f"JOBS:\n\n{chr(10).join(blocks)}"
     )
+    prompt = (analyze_prompt()
+              .replace("<<PROFILE>>", _profile_block())
+              .replace("<<RESUME>>", resume_block)
+              .replace("<<JOBS>>", blocks))
     data = _extract_array(_run(prompt, timeout)) or []
     out: dict[int, dict] = {}
     for item in data:

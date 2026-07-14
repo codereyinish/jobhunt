@@ -43,6 +43,37 @@ def save_resume(text: str) -> None:
     (CONFIG_DIR / "resume.txt").write_text((text or "").strip())
 
 
+def resume_from_upload(filename: str, data: bytes) -> str:
+    """Extract plain text from an uploaded resume (.txt/.md/.pdf)."""
+    name = (filename or "").lower()
+    if name.endswith((".txt", ".md")):
+        return data.decode("utf-8", errors="ignore").strip()
+    if name.endswith(".pdf"):
+        import io
+        from pypdf import PdfReader
+        reader = PdfReader(io.BytesIO(data))
+        return "\n".join(p.extract_text() or "" for p in reader.pages).strip()
+    return data.decode("utf-8", errors="ignore").strip()
+
+
+_PROMPT_PATH = CONFIG_DIR / "analyze_prompt.txt"
+
+
+def analyze_prompt() -> str:
+    """The editable deep-read prompt template. Must keep <<PROFILE>>, <<RESUME>>,
+    <<JOBS>> markers. Falls back to the built-in default if the file is absent."""
+    if _PROMPT_PATH.exists():
+        t = _PROMPT_PATH.read_text().strip()
+        if t:
+            return t
+    from ..match.analyze import DEFAULT_PROMPT
+    return DEFAULT_PROMPT
+
+
+def save_prompt(text: str) -> None:
+    _PROMPT_PATH.write_text((text or "").strip())
+
+
 def companies() -> dict:
     """Curated companies.yaml merged with the user's favorites.yaml (added via
     `jobhunt add`). Not cached, so newly-added favorites take effect at once."""

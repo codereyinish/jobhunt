@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     afit         INTEGER,               -- deep-read fit 0-100 (JD + your profile)
     apply_ok     INTEGER,               -- 1 if it clears your hard gates
     analysis     TEXT,                  -- JSON: requirements, sponsorship, reason
+    analyzed_at  TEXT,                  -- when the deep-read last ran
     status       TEXT DEFAULT 'new',    -- new | drafted | applied | skipped
     UNIQUE(source, source_id)
 );
@@ -55,7 +56,8 @@ def connect():
     try:
         conn.executescript(SCHEMA)
         for col in ("fit INTEGER", "company_type TEXT", "afit INTEGER",
-                    "apply_ok INTEGER", "analysis TEXT"):       # migrate older DBs
+                    "apply_ok INTEGER", "analysis TEXT",
+                    "analyzed_at TEXT"):                        # migrate older DBs
             try:
                 conn.execute(f"ALTER TABLE jobs ADD COLUMN {col}")
             except sqlite3.OperationalError:
