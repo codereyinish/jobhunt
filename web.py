@@ -407,6 +407,12 @@ td a:hover{
 .fnode{flex:1;min-width:205px;background:var(--panel);border:1px solid var(--line);
   border-radius:14px;padding:24px 22px;display:flex;flex-direction:column;gap:14px;
   min-height:250px;box-shadow:0 4px 16px rgba(0,0,0,.25)}
+.fcol{flex:1;min-width:205px;display:flex;flex-direction:column;gap:20px}
+.fcol .fnode{flex:1;min-height:auto;min-width:0}
+.fmerge{width:60px;flex-shrink:0;align-self:stretch}
+.fmerge path{fill:none;stroke:var(--line2);stroke-width:2;stroke-dasharray:5 6;
+  animation:dashmove 1s linear infinite}
+@keyframes dashmove{to{stroke-dashoffset:-22}}
 .fnode.ready{border-color:var(--accent);box-shadow:0 0 30px var(--accent-soft)}
 .fhead{font-size:10.5px;text-transform:uppercase;letter-spacing:.09em;color:var(--muted);
   font-weight:600;display:flex;align-items:center;gap:8px}
@@ -1022,8 +1028,9 @@ def check(url: str = Form(...), save: str = Form("")):
 
 
 def _flow_page(notice: str = "") -> str:
-    from .core.config import search_terms
+    from .core.config import companies, search_terms
     kw = _e("\n".join(search_terms()))
+    ncomp = sum(len(v or []) for v in companies().values())
     with db.connect() as conn:
         total = conn.execute("SELECT COUNT(*) FROM jobs WHERE status != 'closed'").fetchone()[0]
         analyzed = conn.execute("SELECT COUNT(*) FROM jobs WHERE analysis IS NOT NULL AND status != 'closed'").fetchone()[0]
@@ -1033,23 +1040,34 @@ def _flow_page(notice: str = "") -> str:
            "<a class=tool-btn href='/'>&larr; jobs</a></div>")
     banner = f"<div class=result style='margin-bottom:18px'>{notice}</div>" if notice else ""
     C = "<div class=fconn></div>"
-    n1 = ("<div class=fnode><div class=fhead><span class=fnum>1</span> Keywords</div>"
-          "<form class=col method=post action='/keywords' style='width:100%'>"
-          f"<textarea name=keywords rows=7 style='width:100%'>{kw}</textarea>"
-          "<button type=submit style='width:100%'>Save keywords</button></form></div>")
-    n2 = ("<div class=fnode><div class=fhead><span class=fnum>2</span> Fetch</div>"
-          "<div class=fdesc>JobSpy (Indeed/Google) + ATS boards run these searches.</div>"
-          "<form method=post action='/run-fetch'><button style='width:100%'>&#9654; Run fetch</button></form></div>")
-    n3 = ("<div class=fnode><div class=fhead><span class=fnum>3</span> Fetched</div>"
-          f"<div class=fbig>{total}</div><div class=fdesc>jobs stored &amp; scored</div>"
-          "<a class=fbtn href='/'>Show all &rarr;</a></div>")
-    n4 = ("<div class=fnode><div class=fhead><span class=fnum>4</span> Analyze &middot; JD reader</div>"
-          f"<div class=fbig>{analyzed}</div><div class=fdesc>read by Claude &middot; {runs} call(s)</div>"
-          "<form method=post action='/run-analyze'><button style='width:100%'>&#9654; Run call now</button></form></div>")
-    n5 = ("<div class='fnode ready'><div class=fhead><span class=fnum>5</span> Ready to apply</div>"
-          f"<div class=fbig>{ready}</div><div class=fdesc>vetted &amp; pinned jobs</div>"
-          "<a class=fbtn href='/?view=apply'>Show jobs &rarr;</a></div>")
-    flow = "<div class=flowcanvas><div class=flow>" + C.join([n1, n2, n3, n4, n5]) + "</div></div>"
+
+    kw_node = ("<div class=fnode><div class=fhead><span class=fnum>1</span> Keywords &middot; JobSpy</div>"
+               "<form class=col method=post action='/keywords' style='width:100%'>"
+               f"<textarea name=keywords rows=4 style='width:100%'>{kw}</textarea>"
+               "<button type=submit style='width:100%'>Save</button></form></div>")
+    co_node = ("<div class=fnode><div class=fhead><span class=fnum>1</span> Companies &middot; ATS</div>"
+               f"<div class=fbig>{ncomp}</div>"
+               "<div class=fdesc>Greenhouse / Lever / Ashby / Workday boards</div>"
+               "<a class=fbtn href='/'>Manage &rarr;</a></div>")
+    left = f"<div class=fcol>{kw_node}{co_node}</div>"
+    merge = ("<svg class=fmerge viewBox='0 0 64 240' preserveAspectRatio=none aria-hidden=true>"
+             "<path d='M0,58 C36,58 30,120 64,120'/>"
+             "<path d='M0,182 C36,182 30,120 64,120'/></svg>")
+    fetch_node = ("<div class=fnode><div class=fhead><span class=fnum>2</span> Fetch &amp; store</div>"
+                  f"<div class=fbig>{total}</div><div class=fdesc>jobs scored &amp; deduped</div>"
+                  "<form method=post action='/run-fetch' style='width:100%'>"
+                  "<button style='width:100%'>&#9654; Run fetch</button></form>"
+                  "<a class=fbtn href='/'>Show all &rarr;</a></div>")
+    an_node = ("<div class=fnode><div class=fhead><span class=fnum>3</span> Analyze &middot; JD reader</div>"
+               f"<div class=fbig>{analyzed}</div><div class=fdesc>read by Claude &middot; {runs} call(s)</div>"
+               "<form method=post action='/run-analyze' style='width:100%'>"
+               "<button style='width:100%'>&#9654; Run call now</button></form></div>")
+    ready_node = ("<div class='fnode ready'><div class=fhead><span class=fnum>4</span> Ready to apply</div>"
+                  f"<div class=fbig>{ready}</div><div class=fdesc>vetted &amp; pinned jobs</div>"
+                  "<a class=fbtn href='/?view=apply'>Show jobs &rarr;</a></div>")
+    flow = ("<div class=flowcanvas><div class=flow>"
+            + left + merge + fetch_node + C + an_node + C + ready_node
+            + "</div></div>")
     return _page(top + banner + flow)
 
 
