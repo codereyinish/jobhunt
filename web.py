@@ -388,6 +388,7 @@ td a:hover{
   font-size:11px;text-transform:uppercase;letter-spacing:.07em;font-weight:650}
 .hmenu>summary:hover{color:var(--text)}
 .hmenu[open]>summary{color:var(--accent)}
+.hmenu.active>summary{color:var(--accent)}
 .hmenu .menu-list{top:calc(100% - 4px)}
 th.hdd{padding-bottom:0}
 a.cname{color:var(--text);transition:color .12s}
@@ -629,17 +630,31 @@ def _why_cell(analysis: str | None, rejected: bool) -> str:
     return f"<span class=why>{_e(a.get('reason', ''))}</span>"
 
 
+def _states_present(conn) -> list:
+    """Only the US states that actually have jobs — no dead-end options."""
+    import re
+    present = set()
+    for r in conn.execute("SELECT DISTINCT location FROM jobs WHERE status != 'closed'"):
+        for m in re.findall(r",\s*([A-Z]{2})\b", r[0] or ""):
+            present.add(m)
+    return [(c, n) for c, n in _US_STATES if c in present]
+
+
 def _hmenu(label: str, param: str, cur, opts, base: dict) -> str:
     from urllib.parse import urlencode
+    sel = next((lbl for v, lbl in opts if v != "" and str(v) == str(cur)), "")
+    summ = f"{label}: {sel}" if sel else label
+    active = " active" if sel else ""
     links = "".join(
         f"<a href='?{urlencode({**base, param: v, 'page': 0})}'"
         f"{' class=sel' if str(v) == str(cur) else ''}>{lbl}</a>" for v, lbl in opts)
-    return (f"<details class='menu hmenu' name=hdr><summary>{label}</summary>"
+    return (f"<details class='menu hmenu{active}' name=hdr><summary>{summ}</summary>"
             f"<div class=menu-list>{links}</div></details>")
 
 
 def _table(rows, fitcol, loved: set, show_why: bool = False, base: dict | None = None,
-           tier: str = "", sort: str = "", ctype: str = "", locf: str = "", af: str = "") -> str:
+           tier: str = "", sort: str = "", ctype: str = "", locf: str = "", af: str = "",
+           loc_states=None) -> str:
     if not rows:
         return "<div class=empty>No jobs here. Run <code>jobhunt source</code> / <code>analyze</code>, or loosen filters.</div>"
     base = base or {}
@@ -653,7 +668,8 @@ def _table(rows, fitcol, loved: set, show_why: bool = False, base: dict | None =
                     ("unicorn", "Unicorn"), ("public_corp", "Public"),
                     ("staffing_proxy", "Staffing"), ("yc_early", "YC")], base)
     loc_h = _hmenu("Location", "locf", locf,
-                   [("", "All"), ("remote", "Remote"), ("hybrid", "Hybrid")] + _US_STATES, base)
+                   [("", "All"), ("remote", "Remote"), ("hybrid", "Hybrid")]
+                   + (loc_states or []), base)
     apply_h = _hmenu("Apply", "af", af, [("", "All"), ("auto", "Auto"),
                      ("confirm", "Confirm"), ("manual", "Manual")], base)
     head = (f"<table><thead><tr><th></th>{fit_h}<th class=hdd>{score_h}</th>"
@@ -664,7 +680,7 @@ def _table(rows, fitcol, loved: set, show_why: bool = False, base: dict | None =
     body = []
     for i, r in enumerate(rows, 1):
         path = apply_path(classify_url(r["url"] or "", r["source"] or ""))
-        loc = r["location"] or ("Remote" if r["remote"] else "—")
+        loc = "Remote" if r["remote"] else (r["location"] or "—")
         fit_c = f"<td class=fit>{r[fitcol] if r[fitcol] is not None else '—'}</td>" if fitcol else ""
         ctype = r["company_type"]
         ct_cls = " staffing" if ctype == "staffing_proxy" else ""
@@ -712,7 +728,7 @@ def _review_cards(rows) -> str:
         dq = a.get("disqualifiers") or []
         dq_html = ("<div class=rev-dq>" + "".join(
             f"<span class=dqchip>{_e(d)}</span>" for d in dq) + "</div>") if dq else ""
-        loc = r["location"] or ("Remote" if r["remote"] else "—")
+        loc = "Remote" if r["remote"] else (r["location"] or "—")
         afit = r["afit"] if r["afit"] is not None else "—"
         cards.append(
             "<div class=rev-card><div class=rev-head>"
@@ -800,6 +816,7 @@ def _render(tier: str, min_score: int, fresh: bool, sort: str,
         fresh_n = conn.execute(
             "SELECT COUNT(*) FROM jobs WHERE fetched_at >= datetime('now','-24 hours')"
         ).fetchone()[0]
+        avail_states = _states_present(conn)
     has_next = len(rows) > _PAGE
     rows = rows[:_PAGE]
     base = {"view": view, "tier": tier, "min_score": min_score,
@@ -811,7 +828,8 @@ def _render(tier: str, min_score: int, fresh: bool, sort: str,
         content = tabs + _review_cards(rows) + _pager(page, has_next, base)
     else:
         content = (tabs + "<div class=panel>"
-                   + _table(rows, fitcol, loved, show_why, base, tier, sort, ctype, locf, af)
+                   + _table(rows, fitcol, loved, show_why, base, tier, sort, ctype, locf, af,
+                            avail_states)
                    + _pager(page, has_next, base) + "</div>")
     return _page(
         _header(total, fresh_n)
