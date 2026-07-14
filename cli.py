@@ -464,7 +464,7 @@ def main():
     an = sub.add_parser("analyze", help="deep-read shortlist JDs vs your profile (claude)")
     an.add_argument("--min-score", type=int, default=60)
     an.add_argument("--limit", type=int, default=40)
-    an.add_argument("--batch", type=int, default=10)
+    an.add_argument("--batch", type=int, default=8)
     an.add_argument("--threshold", type=int, default=60, help="fit cutoff for the printed list")
     an.add_argument("--force", action="store_true", help="re-read jobs already analyzed")
     an.set_defaults(fn=cmd_analyze)

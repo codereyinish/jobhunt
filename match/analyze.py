@@ -11,12 +11,13 @@ _SIGNAL = ("phd", "ph.d", "doctorate", "bachelor", "master", "degree", "year", "
            "experience", "you have", "you'll", "we're looking", "responsib")
 
 
-def _snippet(desc: str, cap: int = 1300) -> str:
-    """Trim a JD to a short role header + only the requirement-bearing lines."""
+def _snippet(desc: str, cap: int = 2400) -> str:
+    """Keep the role context (top of the JD, where responsibilities + most
+    requirements live) plus any requirement-bearing lines from the remainder."""
     if not desc:
         return ""
-    head = desc[:480]
-    lines = [ln for ln in desc.splitlines() if any(s in ln.lower() for s in _SIGNAL)]
+    head = desc[:1700]
+    lines = [ln for ln in desc[1700:].splitlines() if any(s in ln.lower() for s in _SIGNAL)]
     tail = "\n".join(lines)
     out = head + ("\n---\n" + tail if tail else "")
     return out[:cap]
@@ -50,8 +51,10 @@ def analyze(jobs: list[dict], timeout: int = 300) -> dict[int, dict]:
         for j in jobs
     ]
     prompt = (
-        "You screen jobs for ONE candidate. Read each job's REQUIREMENTS carefully "
-        "(titles lie) and compare them to the candidate's profile and resume.\n\n"
+        "You predict, for ONE candidate, the realistic odds of GETTING each job "
+        "(landing an interview/offer) IF they apply — by comparing their RESUME to the "
+        "role's real requirements and how competitive it is. Titles lie; read the "
+        "requirements and responsibilities, then judge honestly.\n\n"
         f"CANDIDATE PROFILE:\n{_profile_block()}\n{resume_block}\n"
         "For EACH job return an object with:\n"
         "- id\n"
@@ -68,9 +71,12 @@ def analyze(jobs: list[dict], timeout: int = 300) -> dict[int, dict]:
         "clearly more years than they have, or explicit 'no sponsorship now or in "
         "future'. Do NOT reject on merely 'preferred' qualifications. F-1 OPT grants "
         "~3 years, so 'must be authorized to work' is FINE.\n"
-        "- fit: 0-100 — how well the candidate's RESUME/experience matches this JD\n"
+        "- fit: 0-100 — realistic probability the candidate gets an interview/offer if "
+        "they apply, given their resume vs this role's bar AND typical competition. Be "
+        "honest and calibrated: a perfect-on-paper match at a hyper-competitive lab is "
+        "still not 90; a solid match at a normal company can be higher.\n"
         "- disqualifiers: array of short strings (empty if none)\n"
-        "- reason: one short sentence\n\n"
+        "- reason: one short sentence citing the key resume-vs-requirement evidence\n\n"
         "Return ONLY a JSON array, no prose.\n\n"
         f"JOBS:\n\n{chr(10).join(blocks)}"
     )
