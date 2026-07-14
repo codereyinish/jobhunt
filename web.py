@@ -361,12 +361,32 @@ td a:hover{
 .hl-gate{color:var(--red);background:rgba(248,113,113,.11);border-radius:3px;
   padding:1px 3px;font-weight:560}
 .hl-req{color:var(--amber);background:rgba(251,191,36,.08);border-radius:3px;padding:1px 3px}
+
+/* ── View-mode tabs ── */
+.tabs{display:inline-flex;gap:3px;margin-bottom:15px;background:var(--panel);
+  border:1px solid var(--line);border-radius:11px;padding:4px}
+.tab{padding:7px 15px;border-radius:8px;font-size:12.5px;font-weight:540;
+  color:var(--muted);white-space:nowrap;transition:color .14s,background .14s}
+.tab:hover{color:var(--text);background:rgba(255,255,255,.03)}
+.tab.active,.tab.active:hover{background:var(--accent);color:#011a18;font-weight:650}
 """
 
 _TIER_LABEL = {"voice_speech": "voice", "ai_ml": "ai/ml", "swe_backend": "swe"}
 _TYPE_LABEL = {"yc_early": "YC/early", "funded_startup": "startup", "unicorn": "unicorn",
                "public_corp": "public", "staffing_proxy": "staffing", "unknown": "—"}
 _PAGE = 20
+
+
+def _tabs(view: str, base: dict) -> str:
+    from urllib.parse import urlencode
+    items = [("", "All jobs"), ("apply", "Apply-ready"),
+             ("rejected", "Rejected"), ("review", "Last call")]
+    out = []
+    for v, label in items:
+        cls = "tab active" if view == v else "tab"
+        href = "?" + urlencode({**base, "view": v, "page": 0})
+        out.append(f"<a class='{cls}' href='{href}'>{label}</a>")
+    return "<div class=tabs>" + "".join(out) + "</div>"
 
 
 def _pager(page: int, has_next: bool, base: dict) -> str:
@@ -528,22 +548,17 @@ def _filters(tier: str, min_score: int, fresh: bool, sort: str, view: str,
     tsel = "".join(
         f"<option value='{v}'{' selected' if v == tier else ''}>{lbl}</option>"
         for v, lbl in topts)
-    vopts = [("", "all jobs"), ("apply", "✓ apply-ready"), ("rejected", "✕ rejected"),
-             ("call", "◷ last analysis"), ("review", "◷ review · in-JD")]
-    vsel = "".join(
-        f"<option value='{v}'{' selected' if v == view else ''}>{lbl}</option>"
-        for v, lbl in vopts)
     fchk = " checked" if fresh else ""
-    is_open = " open" if (view or fresh or tier) else ""
+    is_open = " open" if (fresh or tier) else ""
     return (
         f"<details class=panel{is_open}><summary>Filters</summary>"
         "<form class=row method=get action='/'>"
-        f"<select name=view>{vsel}</select>"
         f"<select name=tier>{tsel}</select>"
         f"<input type=number name=min_score value={min_score} style='width:92px' title='min score'>"
         f"<label class=chk><input type=checkbox name=fresh value=1{fchk}> last 24h</label>"
         f"<label class=chk>min fit <input type=number name=min_fit value={min_fit} "
         f"style='width:64px' title='AI fit cutoff (apply-ready)'></label>"
+        f"<input type=hidden name=view value='{_e(view)}'>"
         f"<input type=hidden name=sort value='{_e(sort)}'>"
         "<button type=submit>Apply filters</button>"
         "</form></details>"
@@ -689,10 +704,11 @@ def _render(tier: str, min_score: int, fresh: bool, sort: str,
     base = {"view": view, "tier": tier, "min_score": min_score,
             "fresh": 1 if fresh else 0, "sort": sort, "min_fit": min_fit}
     notice_html = f"<div class=result>{notice}</div>" if notice else ""
+    tabs = _tabs(view, base)
     if view == "review":
-        content = _review_cards(rows) + _pager(page, has_next, base)
+        content = tabs + _review_cards(rows) + _pager(page, has_next, base)
     else:
-        content = ("<div class=panel>" + _table(rows, fitcol, loved, show_why)
+        content = (tabs + "<div class=panel>" + _table(rows, fitcol, loved, show_why)
                    + _pager(page, has_next, base) + "</div>")
     return _page(
         _header(total, fresh_n)
