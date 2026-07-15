@@ -554,14 +554,12 @@ def _context_modal() -> str:
 def _fav_modal() -> str:
     from .core.favorites import loved_companies
     loved = sorted(loved_companies())
-    if loved:
-        chips = "".join(
-            f"<span class=chip>{_e(c)}<span class='love on chip-x' data-c=\"{_e(c)}\" "
-            f"onclick='love(this)'>&#9829;</span></span>" for c in loved)
-        loved_html = f"<div class=chips>{chips}</div>"
-    else:
-        loved_html = ("<div class=hint>No loved companies yet — tap the ♥ next to any "
-                      "company in the list below.</div>")
+    chips = "".join(
+        f"<span class=chip data-c=\"{_e(c)}\">{_e(c)}<span class='love on chip-x' "
+        f"data-c=\"{_e(c)}\" onclick='love(this)'>&#9829;</span></span>" for c in loved)
+    hint = ("" if loved else
+            "<div class=hint>No loved companies yet — tap the ♥ next to any company.</div>")
+    loved_html = f"<div class=chips id=favchips>{chips}</div>{hint}"
     return (
         "<div class='overlay fav-ov'><div class=modal>"
         "<label for=favtoggle class=modal-close>&times;</label>"
@@ -607,12 +605,28 @@ def _page(body: str) -> str:
 
 _JS = """<script>
 function love(el){
-  var f=new FormData(); f.append('company', el.dataset.c);
+  var c=el.dataset.c;
+  var f=new FormData(); f.append('company', c);
   fetch('/love',{method:'POST',body:f}).then(function(r){return r.json();})
     .then(function(d){
-      el.classList.toggle('on', d.loved);
-      var n=el.parentNode.querySelector('.cname');
-      if(n) n.classList.toggle('loved', d.loved);
+      document.querySelectorAll('.love').forEach(function(x){
+        if(x.dataset.c===c){
+          x.classList.toggle('on', d.loved);
+          var n=x.parentNode.querySelector('.cname'); if(n) n.classList.toggle('loved', d.loved);
+        }
+      });
+      var box=document.getElementById('favchips');
+      if(box){
+        var found=null;
+        box.querySelectorAll('.chip').forEach(function(ch){ if(ch.getAttribute('data-c')===c) found=ch; });
+        if(d.loved && !found){
+          var s=document.createElement('span'); s.className='chip'; s.setAttribute('data-c',c);
+          s.appendChild(document.createTextNode(c));
+          var h=document.createElement('span'); h.className='love on chip-x'; h.dataset.c=c;
+          h.setAttribute('onclick','love(this)'); h.innerHTML=' &#9829;';
+          s.appendChild(h); box.appendChild(s);
+        } else if(!d.loved && found){ found.remove(); }
+      }
     });
 }
 function pin(el){
@@ -1075,21 +1089,25 @@ def _flow_page(notice: str = "") -> str:
              "<path d='M0,58 C36,58 30,120 64,120'/>"
              "<path d='M0,182 C36,182 30,120 64,120'/></svg>")
     fetch_node = ("<div class=fnode><div class=fhead><span class=fnum>2</span> Fetch &amp; store</div>"
-                  f"<div class=fbig>{total}</div><div class=fdesc>jobs scored &amp; deduped</div>"
+                  f"<div class=fbig id=pcTotal>{total}</div><div class=fdesc>jobs scored &amp; deduped</div>"
                   "<form method=post action='/run-fetch' style='width:100%'>"
                   "<button style='width:100%'>&#9654; Run fetch</button></form>"
                   "<a class=fbtn href='/'>Show all &rarr;</a></div>")
     an_node = ("<div class=fnode><div class=fhead><span class=fnum>3</span> Analyze &middot; JD reader</div>"
-               f"<div class=fbig>{analyzed}</div><div class=fdesc>read by Claude &middot; {runs} call(s)</div>"
+               f"<div class=fbig id=pcAnalyzed>{analyzed}</div><div class=fdesc>read by Claude &middot; <span id=pcRuns>{runs}</span> call(s)</div>"
                "<form method=post action='/run-analyze' style='width:100%'>"
                "<button style='width:100%'>&#9654; Run call now</button></form></div>")
     ready_node = ("<div class='fnode ready'><div class=fhead><span class=fnum>4</span> Ready to apply</div>"
-                  f"<div class=fbig>{ready}</div><div class=fdesc>vetted &amp; pinned jobs</div>"
+                  f"<div class=fbig id=pcReady>{ready}</div><div class=fdesc>vetted &amp; pinned jobs</div>"
                   "<a class=fbtn href='/?view=apply'>Show jobs &rarr;</a></div>")
     flow = ("<div class=flowcanvas><div class=flow>"
             + left + merge + fetch_node + C + an_node + C + ready_node
             + "</div></div>")
-    return _page(top + banner + flow)
+    poll = ("<script>setInterval(function(){fetch('/counts').then(function(r){return r.json();})"
+            ".then(function(d){[['pcTotal',d.total],['pcAnalyzed',d.analyzed],['pcReady',d.ready],"
+            "['pcRuns',d.runs]].forEach(function(p){var e=document.getElementById(p[0]);"
+            "if(e&&e.textContent!=String(p[1]))e.textContent=p[1];});}).catch(function(){});},4000);</script>")
+    return _page(top + banner + flow + poll)
 
 
 def _companies_page(notice: str = "") -> str:
@@ -1164,6 +1182,16 @@ def _bg(args: list):
     from pathlib import Path
     subprocess.Popen([sys.executable, "-m", "jobhunt.cli"] + args,
                      cwd=str(Path(__file__).resolve().parents[1]))
+
+
+@app.get("/counts")
+def counts_route():
+    with db.connect() as conn:
+        total = conn.execute("SELECT COUNT(*) FROM jobs WHERE status != 'closed'").fetchone()[0]
+        analyzed = conn.execute("SELECT COUNT(*) FROM jobs WHERE analysis IS NOT NULL AND status != 'closed'").fetchone()[0]
+        ready = conn.execute("SELECT COUNT(*) FROM jobs WHERE (apply_ok = 1 OR pinned = 1) AND status != 'closed'").fetchone()[0]
+        runs = conn.execute("SELECT COALESCE(MAX(analysis_run), 0) FROM jobs").fetchone()[0]
+    return JSONResponse({"total": total, "analyzed": analyzed, "ready": ready, "runs": runs})
 
 
 @app.get("/flow", response_class=HTMLResponse)
