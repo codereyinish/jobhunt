@@ -360,13 +360,17 @@ td a:hover{
 .rev-reason.pass{color:var(--muted)}
 .rev-reason.fail{color:var(--red)}
 .rev-dq{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}
-.dqchip{font-size:11.5px;font-weight:560;color:var(--red);background:rgba(248,113,113,.08);
-  border:1px solid rgba(248,113,113,.26);border-radius:6px;padding:3px 9px}
-.rev-desc{margin-top:13px;padding:13px 15px;background:var(--panel);border:1px solid var(--line);
-  border-radius:9px;font-size:12.5px;line-height:1.65;color:var(--muted);
-  max-height:240px;overflow:auto}
-.hl-gate{color:var(--red);background:rgba(248,113,113,.11);border-radius:3px;
-  padding:1px 3px;font-weight:560}
+.dqchip{font-size:12px;font-weight:560;color:var(--red);background:rgba(248,113,113,.09);
+  border:1px solid rgba(248,113,113,.28);border-radius:6px;padding:4px 10px}
+.dqchip[onclick]{cursor:pointer}
+.dqchip[onclick]:hover{background:rgba(248,113,113,.16)}
+.rev-desc{margin-top:13px;padding:14px 16px;background:var(--panel);border:1px solid var(--line);
+  border-radius:9px;font-size:13.5px;line-height:1.7;color:var(--text);
+  max-height:260px;overflow:auto}
+mark.hl-gate,.hl-gate{color:#ff8f8f;background:rgba(248,113,113,.16);border-radius:3px;
+  padding:1px 3px;font-weight:600}
+mark.hl-gate.flash{outline:2px solid var(--red);animation:qflash 1.4s ease}
+@keyframes qflash{0%,40%{background:rgba(248,113,113,.5)}100%{background:rgba(248,113,113,.16)}}
 .hl-req{color:var(--amber);background:rgba(251,191,36,.08);border-radius:3px;padding:1px 3px}
 
 /* ── View dropdown menu (macOS-style) ── */
@@ -641,6 +645,11 @@ function pin(el){
   fetch('/pin',{method:'POST',body:f}).then(function(r){return r.json();})
     .then(function(d){ el.classList.toggle('on', d.pinned); });
 }
+function jumpq(el){
+  var t=document.getElementById(el.dataset.t);
+  if(t){ t.scrollIntoView({block:'center',behavior:'smooth'});
+    t.classList.add('flash'); setTimeout(function(){t.classList.remove('flash');},1400); }
+}
 </script>"""
 
 
@@ -819,8 +828,19 @@ def _review_cards(rows) -> str:
         badge = (f"<span class='rev-badge {reason_cls}'>"
                  f"{'rejected' if rejected else 'apply-ready'}</span>")
         dq = a.get("disqualifiers") or []
-        dq_html = ("<div class=rev-dq>" + "".join(
-            f"<span class=dqchip>{_e(d)}</span>" for d in dq) + "</div>") if dq else ""
+        chips, marks = [], []
+        for i, d in enumerate(dq):
+            label, quote = (d.get("label", ""), d.get("quote", "")) if isinstance(d, dict) else (str(d), "")
+            if quote:
+                qid = f"q-{r['id']}-{i}"
+                marks.append((qid, quote))
+                chips.append(f"<span class=dqchip data-t='{qid}' onclick='jumpq(this)'>"
+                             f"{_e(label)} &#9660;</span>")
+            else:
+                chips.append(f"<span class=dqchip>{_e(label)}</span>")
+        dq_html = f"<div class=rev-dq>{''.join(chips)}</div>" if chips else ""
+        desc = (_highlight_quotes(r["description"] or "", marks) if marks
+                else highlight_html(r["description"] or ""))
         loc = "Remote" if r["remote"] else (r["location"] or "—")
         afit = r["afit"] if r["afit"] is not None else "—"
         cards.append(
@@ -833,10 +853,19 @@ def _review_cards(rows) -> str:
             f"{_TYPE_LABEL.get(r['company_type'], '—')} &middot; {_e(loc)}</div></div>"
             f"{badge}</div>"
             f"<div class='rev-reason {reason_cls}'>{_e(a.get('reason', ''))}</div>"
-            f"{dq_html}"
-            f"<div class=rev-desc>{highlight_html(r['description'] or '')}</div></div>"
+            f"{dq_html}<div class=rev-desc>{desc}</div></div>"
         )
     return "<div class='panel review'>" + "".join(cards) + "</div>"
+
+
+def _highlight_quotes(desc: str, marks: list) -> str:
+    """Wrap the exact JD quotes (Claude's evidence) in clickable red marks."""
+    safe = html.escape(desc or "")
+    for qid, quote in marks:
+        q = html.escape((quote or "").strip())
+        if q and q in safe:
+            safe = safe.replace(q, f"<mark class=hl-gate id='{qid}'>{q}</mark>", 1)
+    return safe.replace("\n", "<br>")
 
 
 def _render(tier: str, min_score: int, fresh: bool, sort: str,

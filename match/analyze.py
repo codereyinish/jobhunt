@@ -27,7 +27,10 @@ explicit 'no sponsorship now or in future'. Do NOT reject on merely 'preferred' 
 F-1 OPT grants ~3 years, so 'must be authorized to work' is FINE.
 - fit: 0-100 — realistic probability of an interview/offer if they apply, given their \
 resume vs this role's bar AND typical competition. Be honest and calibrated.
-- disqualifiers: array of short strings (empty if none)
+- disqualifiers: array of {"label","quote"} objects. label = a SHORT tag, max 4 \
+words (e.g. "PhD required", "5+ years", "US citizen only", "Master's required"). \
+quote = the EXACT verbatim text from the job description that triggered it, copied \
+word-for-word so it can be found in the text (max ~15 words). Empty array if none.
 - reason: one short sentence citing the key resume-vs-requirement evidence
 
 Return ONLY a JSON array, no prose.
