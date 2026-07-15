@@ -23,8 +23,8 @@ CSS = """
   --line:#1a1f30;
   --line2:#232d42;
   --text:#dce1ef;
-  --muted:#677090;
-  --faint:#3b4262;
+  --muted:#8b93a6;
+  --faint:#646d82;
   --accent:#14d9c4;
   --accent-2:#4fe8d7;
   --accent-soft:rgba(20,217,196,.09);
@@ -42,7 +42,7 @@ body{
     radial-gradient(ellipse 520px 360px at 4% 88%,rgba(167,139,250,.022) 0%,transparent 55%),
     var(--bg);
   color:var(--text);
-  font-family:'Inter','Inter var',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  font-family:'Manrope',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
   font-size:14px;line-height:1.56;letter-spacing:-.007em;
   -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
   font-feature-settings:'cv02','cv03','cv04','ss01';
@@ -69,9 +69,11 @@ header{
 }
 .brandwrap{display:flex;flex-direction:column;gap:4px}
 .brand{
-  font-size:18px;font-weight:700;letter-spacing:-.04em;
+  font-family:'Space Grotesk','Manrope',sans-serif;
+  font-size:19px;font-weight:700;letter-spacing:-.03em;
   display:flex;align-items:center;gap:9px;color:var(--text);
 }
+.flowtop h1{font-family:'Space Grotesk','Manrope',sans-serif}
 .brand .dot{
   width:7px;height:7px;border-radius:50%;
   background:var(--green);flex-shrink:0;
@@ -420,7 +422,7 @@ td a:hover{
 .corow:hover .love{opacity:1}
 .coname{font-weight:600;color:var(--text)}
 .coname:hover{color:var(--accent)}
-.covendor{font-size:10.5px;color:var(--faint);text-transform:uppercase;letter-spacing:.07em}
+.covendor{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;font-weight:600}
 .corm{margin-left:auto;background:none;border:1px solid var(--line2);color:var(--muted);
   width:27px;height:27px;border-radius:7px;font-size:16px;padding:0;line-height:1;cursor:pointer}
 .corm:hover{color:var(--red);border-color:var(--red)}
@@ -596,7 +598,8 @@ def _page(body: str) -> str:
             f"<link rel=preconnect href='https://fonts.googleapis.com'>"
             f"<link rel=preconnect href='https://fonts.gstatic.com' crossorigin>"
             f"<link rel=stylesheet href='https://fonts.googleapis.com/css2?"
-            f"family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap'>"
+            f"family=Manrope:wght@400;500;600;700;800&"
+            f"family=Space+Grotesk:wght@500;600;700&display=swap'>"
             f"<title>jobhunt</title><style>{CSS}</style></head>"
             f"<body>{_toggles()}{_fav_modal()}{_pref_modal()}{_context_modal()}"
             f"<div class=wrap>{body}</div>{_JS}</body></html>")
