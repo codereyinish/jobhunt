@@ -431,6 +431,17 @@ td a:hover{
 .fbtn{color:var(--accent);border:1px solid var(--line2);background:transparent;transition:border-color .14s}
 .fbtn:hover{border-color:var(--accent)}
 .fnode textarea{font-size:12px;line-height:1.5}
+.kwlist{display:flex;flex-direction:column;gap:6px;width:100%}
+.kwrow{display:flex;align-items:center;gap:8px;background:var(--panel2);
+  border:1px solid var(--line);border-radius:8px;padding:7px 8px 7px 11px}
+.kwname{font-size:12.5px;color:var(--text);flex:1;min-width:0;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kwrm{margin-left:auto;flex-shrink:0;background:none;border:none;color:var(--faint);
+  font-size:16px;line-height:1;padding:0;width:20px;height:20px;cursor:pointer}
+.kwrm:hover{color:var(--red)}
+.kwadd{display:flex;gap:6px;margin-top:11px;width:100%}
+.kwadd input{flex:1;min-width:0}
+.kwadd button{padding:8px 13px;flex-shrink:0}
 .fconn{align-self:center;position:relative;width:62px;height:2px;flex-shrink:0;
   background:repeating-linear-gradient(90deg,var(--line2) 0 5px,transparent 5px 11px)}
 .fconn::after{content:'';position:absolute;top:-3px;left:0;width:8px;height:8px;border-radius:50%;
@@ -1032,7 +1043,7 @@ def check(url: str = Form(...), save: str = Form("")):
 
 def _flow_page(notice: str = "") -> str:
     from .core.config import companies, search_terms
-    kw = _e("\n".join(search_terms()))
+    terms = search_terms()
     ncomp = sum(len(v or []) for v in companies().values())
     with db.connect() as conn:
         total = conn.execute("SELECT COUNT(*) FROM jobs WHERE status != 'closed'").fetchone()[0]
@@ -1044,10 +1055,18 @@ def _flow_page(notice: str = "") -> str:
     banner = f"<div class=result style='margin-bottom:18px'>{notice}</div>" if notice else ""
     C = "<div class=fconn></div>"
 
+    kw_rows = "".join(
+        "<div class=kwrow>"
+        f"<span class=kwname title=\"{_e(t)}\">{_e(t)}</span>"
+        "<form method=post action='/keyword-remove' style='margin:0'>"
+        f"<input type=hidden name=kw value=\"{_e(t)}\">"
+        "<button class=kwrm type=submit title='remove'>&times;</button></form>"
+        "</div>" for t in terms)
+    kw_add = ("<form class=kwadd method=post action='/keyword-add'>"
+              "<input type=text name=kw placeholder='Add a keyword…'>"
+              "<button type=submit title='add'>+</button></form>")
     kw_node = ("<div class=fnode><div class=fhead><span class=fnum>1</span> Keywords &middot; JobSpy</div>"
-               "<form class=col method=post action='/keywords' style='width:100%'>"
-               f"<textarea name=keywords rows=4 style='width:100%'>{kw}</textarea>"
-               "<button type=submit style='width:100%'>Save</button></form></div>")
+               f"<div class=kwlist>{kw_rows}</div>{kw_add}</div>")
     co_node = ("<div class=fnode><div class=fhead><span class=fnum>1</span> Companies &middot; ATS</div>"
                f"<div class=fbig>{ncomp}</div>"
                "<div class=fdesc>Greenhouse / Lever / Ashby / Workday boards</div>"
@@ -1155,11 +1174,18 @@ def run_analyze_route():
     return _flow_page("Analyze call started — refresh in ~1–2 min; ‘ready to apply’ will fill in.")
 
 
-@app.post("/keywords", response_class=HTMLResponse)
-def keywords_route(keywords: str = Form("")):
-    from .core.config import save_keywords
-    save_keywords(keywords)
-    return _flow_page("Keywords saved. Hit ▶ Run fetch to use them.")
+@app.post("/keyword-add", response_class=HTMLResponse)
+def keyword_add_route(kw: str = Form("")):
+    from .core.config import add_keyword
+    add_keyword(kw)
+    return _flow_page()
+
+
+@app.post("/keyword-remove", response_class=HTMLResponse)
+def keyword_remove_route(kw: str = Form("")):
+    from .core.config import remove_keyword
+    remove_keyword(kw)
+    return _flow_page()
 
 
 def main():

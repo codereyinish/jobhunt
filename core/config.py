@@ -58,6 +58,21 @@ def save_keywords(text: str) -> None:
     (CONFIG_DIR / "keywords.txt").write_text((text or "").strip())
 
 
+def add_keyword(kw: str) -> None:
+    kw = (kw or "").strip()
+    if not kw:
+        return
+    terms = search_terms()
+    if kw.lower() not in [t.lower() for t in terms]:
+        terms.append(kw)
+        save_keywords("\n".join(terms))
+
+
+def remove_keyword(kw: str) -> None:
+    terms = [t for t in search_terms() if t != kw]
+    save_keywords("\n".join(terms))
+
+
 def resume_from_upload(filename: str, data: bytes) -> str:
     """Extract plain text from an uploaded resume (.txt/.md/.pdf)."""
     name = (filename or "").lower()
