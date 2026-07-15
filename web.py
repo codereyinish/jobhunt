@@ -42,7 +42,7 @@ body{
     radial-gradient(ellipse 520px 360px at 4% 88%,rgba(167,139,250,.022) 0%,transparent 55%),
     var(--bg);
   color:var(--text);
-  font-family:'Manrope',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;
   font-size:14px;line-height:1.56;letter-spacing:-.007em;
   -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
   font-feature-settings:'cv02','cv03','cv04','ss01';
@@ -69,11 +69,9 @@ header{
 }
 .brandwrap{display:flex;flex-direction:column;gap:4px}
 .brand{
-  font-family:'Space Grotesk','Manrope',sans-serif;
-  font-size:19px;font-weight:700;letter-spacing:-.03em;
+  font-size:19px;font-weight:700;letter-spacing:-.02em;
   display:flex;align-items:center;gap:9px;color:var(--text);
 }
-.flowtop h1{font-family:'Space Grotesk','Manrope',sans-serif}
 .brand .dot{
   width:7px;height:7px;border-radius:50%;
   background:var(--green);flex-shrink:0;
@@ -415,13 +413,13 @@ td a:hover{
 .fmerge path{fill:none;stroke:var(--line2);stroke-width:2;stroke-dasharray:5 6;
   animation:dashmove 1s linear infinite}
 @keyframes dashmove{to{stroke-dashoffset:-22}}
-.colist{display:flex;flex-direction:column}
-.corow{display:flex;align-items:center;gap:13px;padding:12px 4px;border-top:1px solid var(--line)}
-.corow:first-child{border-top:none}
-.corow .love{opacity:.45;margin:0}
-.corow:hover .love{opacity:1}
+.colist{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.corow{display:flex;align-items:center;gap:12px;padding:15px 17px;border:1px solid var(--line);
+  border-radius:11px;background:var(--panel2)}
+.corow:hover{border-color:var(--line2)}
 .coname{font-weight:600;color:var(--text)}
 .coname:hover{color:var(--accent)}
+@media(max-width:720px){.colist{grid-template-columns:1fr}}
 .covendor{font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;font-weight:600}
 .corm{margin-left:auto;background:none;border:1px solid var(--line2);color:var(--muted);
   width:27px;height:27px;border-radius:7px;font-size:16px;padding:0;line-height:1;cursor:pointer}
@@ -595,11 +593,6 @@ def _pref_modal() -> str:
 def _page(body: str) -> str:
     return (f"<!doctype html><html lang=en><head><meta charset=utf-8>"
             f"<meta name=viewport content='width=device-width,initial-scale=1'>"
-            f"<link rel=preconnect href='https://fonts.googleapis.com'>"
-            f"<link rel=preconnect href='https://fonts.gstatic.com' crossorigin>"
-            f"<link rel=stylesheet href='https://fonts.googleapis.com/css2?"
-            f"family=Manrope:wght@400;500;600;700;800&"
-            f"family=Space+Grotesk:wght@500;600;700&display=swap'>"
             f"<title>jobhunt</title><style>{CSS}</style></head>"
             f"<body>{_toggles()}{_fav_modal()}{_pref_modal()}{_context_modal()}"
             f"<div class=wrap>{body}</div>{_JS}</body></html>")
@@ -635,7 +628,7 @@ def _header(total: int | None = None, fresh: int | None = None) -> str:
             bits.append(f"<b>{fresh}</b> new · 24h")
         meta = f"<div class=meta>{' &nbsp;·&nbsp; '.join(bits)}</div>"
     return (f"<header><div class=brandwrap>"
-            f"<div class=brand>jobhunt<span class=dot></span></div>{meta}</div>"
+            f"<a href='/' class=brand>jobhunt<span class=dot></span></a>{meta}</div>"
             f"{_toolbar()}</header>")
 
 
@@ -1050,7 +1043,7 @@ def _flow_page(notice: str = "") -> str:
         analyzed = conn.execute("SELECT COUNT(*) FROM jobs WHERE analysis IS NOT NULL AND status != 'closed'").fetchone()[0]
         ready = conn.execute("SELECT COUNT(*) FROM jobs WHERE (apply_ok = 1 OR pinned = 1) AND status != 'closed'").fetchone()[0]
         runs = conn.execute("SELECT COALESCE(MAX(analysis_run), 0) FROM jobs").fetchone()[0]
-    top = ("<div class=flowtop><h1>jobhunt · pipeline</h1>"
+    top = ("<div class=flowtop><a href='/' class=brand>jobhunt</a>"
            "<a class=tool-btn href='/'>&larr; jobs</a></div>")
     banner = f"<div class=result style='margin-bottom:18px'>{notice}</div>" if notice else ""
     C = "<div class=fconn></div>"
@@ -1087,10 +1080,8 @@ def _flow_page(notice: str = "") -> str:
 
 def _companies_page(notice: str = "") -> str:
     from .core.config import companies, company_board_url
-    from .core.favorites import loved_companies
     comp = companies()
-    loved = loved_companies()
-    top = ("<div class=flowtop><h1>jobhunt · companies</h1>"
+    top = ("<div class=flowtop><a href='/' class=brand>jobhunt</a>"
            "<a class=tool-btn href='/flow'>&larr; pipeline</a></div>")
     banner = f"<div class=result style='margin-bottom:18px'>{notice}</div>" if notice else ""
     add_form = ("<div class=panel><h2>Add a company</h2>"
@@ -1102,11 +1093,8 @@ def _companies_page(notice: str = "") -> str:
     for vendor in ("greenhouse", "lever", "ashby", "workday"):
         for tok in comp.get(vendor, []):
             name = tok.get("tenant") if isinstance(tok, dict) else tok
-            on = " on" if name in loved else ""
             rows.append(
                 "<div class=corow>"
-                f"<span class='love{on}' data-c=\"{_e(name)}\" onclick='love(this)' "
-                "title='love'>&#9829;</span>"
                 f"<a class=coname href='{_e(company_board_url(vendor, tok))}' target=_blank "
                 f"rel=noopener>{_e(name)}</a>"
                 f"<span class=covendor>{vendor}</span>"
