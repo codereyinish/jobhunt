@@ -40,7 +40,7 @@ body{
   background:var(--bg);
   color:var(--text);
   font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;
-  font-size:14px;line-height:1.55;letter-spacing:-.004em;
+  font-size:15px;line-height:1.55;letter-spacing:-.004em;
   -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
 }
 ::selection{background:rgba(20,217,196,.16);color:var(--text)}
@@ -141,7 +141,7 @@ form.col,.col{display:flex;flex-direction:column;gap:10px;align-items:flex-start
 input,select,textarea{
   background:var(--panel2);color:var(--text);
   border:1px solid var(--line2);border-radius:8px;
-  padding:8px 12px;font-size:13.5px;
+  padding:8px 12px;font-size:14px;
   outline:none;font-family:inherit;
   transition:border-color .15s,box-shadow .15s;
 }
@@ -166,7 +166,7 @@ label.chk:hover{color:var(--text)}
 button{
   background:var(--accent);color:#0a0a0b;
   border:none;border-radius:8px;
-  padding:8px 16px;font-size:13.5px;font-weight:640;
+  padding:8px 16px;font-size:14px;font-weight:640;
   cursor:pointer;letter-spacing:-.01em;
   transition:background .12s,box-shadow .12s,transform .06s;
 }
@@ -194,7 +194,7 @@ button:active{transform:translateY(1px);box-shadow:none}
 table{width:100%;border-collapse:collapse}
 th{
   text-align:left;color:var(--faint);
-  font-size:9.5px;text-transform:uppercase;letter-spacing:.12em;
+  font-size:10.5px;text-transform:uppercase;letter-spacing:.09em;
   font-weight:600;padding:0 10px 12px;white-space:nowrap;
 }
 td{
@@ -272,8 +272,8 @@ td a:hover{
 .pill.manual{color:var(--faint);background:rgba(59,66,98,.12);border-color:var(--line2)}
 
 /* ── Empty state ── */
-.empty{color:var(--muted);padding:48px 0;text-align:center;font-size:13.5px}
-.emptyrow{color:var(--muted);padding:44px 12px;text-align:center;font-size:13.5px}
+.empty{color:var(--muted);padding:48px 0;text-align:center;font-size:14px}
+.emptyrow{color:var(--muted);padding:44px 12px;text-align:center;font-size:14px}
 .emptyrow:hover{background:none}
 
 /* ── Pagination ── */
