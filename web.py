@@ -335,6 +335,11 @@ td a:hover{
 
 .filterbar{padding-bottom:15px;margin-bottom:2px;border-bottom:1px solid var(--line);gap:9px}
 
+.callnav{display:flex;align-items:center;justify-content:center;gap:22px;margin-bottom:16px;
+  font-size:13px;color:var(--muted)}
+.callnav .callno{font-weight:600;color:var(--text);font-variant-numeric:tabular-nums}
+.callnav .faint{color:var(--faint)}
+
 /* ── Review cards (latest-call audit view) ── */
 .review{display:flex;flex-direction:column;gap:13px}
 .rev-card{background:var(--panel2);border:1px solid var(--line);border-radius:12px;
@@ -834,19 +839,25 @@ def _review_cards(rows) -> str:
 def _render(tier: str, min_score: int, fresh: bool, sort: str,
             preference: str = "", notice: str = "", view: str = "",
             min_fit: int = 50, page: int = 0, ctype: str = "",
-            locf: str = "", af: str = "", company: str = "") -> str:
+            locf: str = "", af: str = "", company: str = "", run: int = 0) -> str:
     from .core.favorites import load_preference, loved_companies
     if not preference:
         preference = load_preference()
     loved = loved_companies()
 
     show_why = view in ("apply", "rejected", "call")
+    call_runs, cur_run = [], 0
     if view in ("call", "review"):
-        q = "SELECT * FROM jobs WHERE analysis IS NOT NULL AND status != 'closed'"
-        p: list = []
+        with db.connect() as _c:
+            call_runs = [r[0] for r in _c.execute(
+                "SELECT DISTINCT analysis_run FROM jobs WHERE analysis_run IS NOT NULL "
+                "AND status != 'closed' ORDER BY analysis_run DESC").fetchall()]
+        cur_run = run if run in call_runs else (call_runs[0] if call_runs else 0)
+        q = "SELECT * FROM jobs WHERE analysis_run = ? AND status != 'closed'"
+        p: list = [cur_run]
         if tier:
             q += " AND tier = ?"; p.append(tier)
-        q += " ORDER BY analyzed_at DESC, afit DESC"
+        q += " ORDER BY afit DESC"
         fitcol = "afit"
     elif view == "apply":
         q = "SELECT * FROM jobs WHERE (apply_ok = 1 OR pinned = 1) AND status != 'closed'"
@@ -908,11 +919,12 @@ def _render(tier: str, min_score: int, fresh: bool, sort: str,
     rows = rows[:_PAGE]
     base = {"view": view, "tier": tier, "min_score": min_score,
             "fresh": 1 if fresh else 0, "sort": sort, "min_fit": min_fit,
-            "ctype": ctype, "locf": locf, "af": af, "company": company}
+            "ctype": ctype, "locf": locf, "af": af, "company": company, "run": run}
     notice_html = f"<div class=result>{notice}</div>" if notice else ""
     tabs = _tabs(view, base)
     if view == "review":
-        content = tabs + _review_cards(rows) + _pager(page, has_next, base)
+        content = (tabs + _call_nav(cur_run, call_runs, base)
+                   + _review_cards(rows) + _pager(page, has_next, base))
     else:
         content = (tabs + "<div class=panel>"
                    + _table(rows, fitcol, loved, show_why, base, tier, sort, ctype, locf, af,
@@ -926,12 +938,30 @@ def _render(tier: str, min_score: int, fresh: bool, sort: str,
     )
 
 
+def _call_nav(cur: int, runs: list, base: dict) -> str:
+    from urllib.parse import urlencode
+    if not runs:
+        return ""
+    idx = runs.index(cur) if cur in runs else 0
+    newer = runs[idx - 1] if idx > 0 else None            # runs sorted DESC
+    older = runs[idx + 1] if idx + 1 < len(runs) else None
+
+    def lnk(r, label):
+        if r is None:
+            return f"<span class=faint>{label}</span>"
+        return f"<a href='?{urlencode({**base, 'view': 'review', 'run': r})}'>{label}</a>"
+    return (f"<div class=callnav>{lnk(older, '← older call')}"
+            f"<span class=callno>Call #{cur} &nbsp;·&nbsp; {len(runs)} total</span>"
+            f"{lnk(newer, 'newer call →')}</div>")
+
+
 @app.get("/", response_class=HTMLResponse)
 def index(tier: str = "", min_score: int = 40, fresh: int = 0, sort: str = "",
           view: str = "", min_fit: int = 50, page: int = 0, ctype: str = "",
-          locf: str = "", af: str = "", company: str = ""):
+          locf: str = "", af: str = "", company: str = "", run: int = 0):
     return _render(tier, min_score, bool(fresh), sort, view=view, min_fit=min_fit,
-                   page=max(0, page), ctype=ctype, locf=locf, af=af, company=company)
+                   page=max(0, page), ctype=ctype, locf=locf, af=af, company=company,
+                   run=run)
 
 
 @app.post("/resume", response_class=HTMLResponse)

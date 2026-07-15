@@ -1,30 +1,28 @@
 from __future__ import annotations
 
 import html
+import re
 
-# Hard-gate signals — the lines that usually cause a rejection (highlight RED).
-_GATE = ("phd", "ph.d", "doctorate", "sponsor", "visa", "authoriz", "clearance",
-         "citizen", "green card", " opt", "h-1b", "h1b", "security clearance",
-         "5+ years", "6+ years", "7+ years", "8+ years", "10+ years")
-# Requirement/experience signals — relevant context (highlight AMBER).
-_REQ = ("year", "yrs", "degree", "bachelor", "master", "requirement", "qualif",
-        "must have", "minimum", "preferred", "experience", "required")
+# Only the actual hard-gate phrases get flagged RED — the parts that would
+# disqualify an early-career candidate. Everything else stays normal so the
+# fault actually stands out (instead of the whole JD turning red).
+_PATTERNS = [
+    r"ph\.?\s?d\b",
+    r"doctoral|doctorate",
+    # 3+ years / 5-7 years / 10 years — skip "1-2 years" (not a blocker)
+    r"(?:[3-9]|1[0-9])\s*\+?\s*(?:to\s*\d+\s*|-\s*\d+\s*)?(?:years|yrs)",
+    r"no sponsorship|not (?:able to |be able to )?sponsor\w*|without sponsorship"
+    r"|unable to sponsor|do(?:es)? not (?:offer |provide )?sponsor\w*|cannot sponsor"
+    r"|sponsorship (?:is )?not",
+    r"security clearance|active clearance|ts/sci|secret clearance",
+    r"u\.?s\.? citizen\w*|must be a citizen",
+    r"green card",
+]
+_RE = re.compile("(" + "|".join(_PATTERNS) + ")", re.I)
 
 
 def highlight_html(desc: str) -> str:
-    """Render a JD as HTML with requirement lines color-quoted:
-    red for hard-gate lines (PhD/years/sponsorship), amber for other requirements."""
-    lines = []
-    for raw in (desc or "").splitlines():
-        low = raw.lower()
-        safe = html.escape(raw)
-        if not raw.strip():
-            lines.append("")
-            continue
-        if any(g in low for g in _GATE):
-            lines.append(f"<span class=hl-gate>{safe}</span>")
-        elif any(r in low for r in _REQ):
-            lines.append(f"<span class=hl-req>{safe}</span>")
-        else:
-            lines.append(safe)
-    return "<br>".join(lines)
+    """Escape the JD and wrap only the hard-gate phrases in a red span."""
+    safe = html.escape(desc or "")
+    safe = _RE.sub(r"<span class=hl-gate>\1</span>", safe)
+    return safe.replace("\n", "<br>")
