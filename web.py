@@ -431,11 +431,11 @@ td a:hover{
 .fbtn{color:var(--accent);border:1px solid var(--line2);background:transparent;transition:border-color .14s}
 .fbtn:hover{border-color:var(--accent)}
 .fnode textarea{font-size:12px;line-height:1.5}
-.kwlist{display:flex;flex-direction:column;gap:6px;width:100%}
+.kwlist{display:flex;flex-direction:column;gap:6px;width:100%;
+  max-height:270px;overflow-y:auto;padding-right:3px}
 .kwrow{display:flex;align-items:center;gap:8px;background:var(--panel2);
-  border:1px solid var(--line);border-radius:8px;padding:7px 8px 7px 11px}
-.kwname{font-size:12.5px;color:var(--text);flex:1;min-width:0;
-  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  border:1px solid var(--line);border-radius:8px;padding:8px 8px 8px 11px}
+.kwname{font-size:12.5px;color:var(--text);flex:1;min-width:0;line-height:1.35;word-break:break-word}
 .kwrm{margin-left:auto;flex-shrink:0;background:none;border:none;color:var(--faint);
   font-size:16px;line-height:1;padding:0;width:20px;height:20px;cursor:pointer}
 .kwrm:hover{color:var(--red)}
