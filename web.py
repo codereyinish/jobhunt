@@ -835,12 +835,11 @@ def _render(tier: str, min_score: int, fresh: bool, sort: str,
         q += " ORDER BY analyzed_at DESC, afit DESC"
         fitcol = "afit"
     elif view == "apply":
-        q = ("SELECT * FROM jobs WHERE ((apply_ok = 1 AND afit >= ?) OR pinned = 1) "
-             "AND status != 'closed'")
-        p: list = [min_fit]
+        q = "SELECT * FROM jobs WHERE (apply_ok = 1 OR pinned = 1) AND status != 'closed'"
+        p: list = []
         if tier:
             q += " AND tier = ?"; p.append(tier)
-        q += " ORDER BY afit DESC"
+        q += " ORDER BY afit IS NULL, afit DESC"
         fitcol = "afit"
     elif view == "rejected":
         q = "SELECT * FROM jobs WHERE analysis IS NOT NULL AND apply_ok = 0 AND status != 'closed'"
