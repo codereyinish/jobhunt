@@ -17,14 +17,14 @@ CSS = """
 /* ── Design system: neutral graphite, monochrome + soft-white accents ── */
 :root{
   --bg:#0a0a0b;
-  --panel:#131314;
-  --panel2:#191919;
-  --elevated:#212123;
-  --line:#242426;
-  --line2:#323235;
-  --text:#ececed;
-  --muted:#a0a0a6;
-  --faint:#6e6e75;
+  --panel:#161618;
+  --panel2:#1d1d20;
+  --elevated:#252528;
+  --line:#2b2b2f;
+  --line2:#3a3a3f;
+  --text:#f0f0f1;
+  --muted:#b2b2ba;
+  --faint:#8c8c95;
   --accent:#eaeaec;
   --accent-2:#ffffff;
   --accent-soft:rgba(234,234,236,.09);
