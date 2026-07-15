@@ -389,6 +389,16 @@ def cmd_check(args):
         print("  not saved (doesn’t fit; use nothing to force, or fix filters).")
 
 
+def cmd_apply(args):
+    from .apply.autofill import run
+    with db.connect() as conn:
+        r = conn.execute("SELECT * FROM jobs WHERE id = ?", [args.id]).fetchone()
+    if not r:
+        print(f"No job with id {args.id}")
+        return
+    run(dict(r))
+
+
 def cmd_classify(args):
     from collections import Counter
 
@@ -471,6 +481,10 @@ def main():
     an.add_argument("--threshold", type=int, default=60, help="fit cutoff for the printed list")
     an.add_argument("--force", action="store_true", help="re-read jobs already analyzed")
     an.set_defaults(fn=cmd_analyze)
+
+    ap_ = sub.add_parser("apply", help="open a job's application form pre-filled from your profile")
+    ap_.add_argument("id", type=int, help="job id (from `jobhunt list`)")
+    ap_.set_defaults(fn=cmd_apply)
 
     args = ap.parse_args()
     args.fn(args)

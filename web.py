@@ -371,6 +371,26 @@ mark.hl-gate,.hl-gate{color:#ff8f8f;background:rgba(248,113,113,.16);border-radi
   padding:1px 3px;font-weight:600}
 mark.hl-gate.flash{outline:2px solid var(--red);animation:qflash 1.4s ease}
 @keyframes qflash{0%,40%{background:rgba(248,113,113,.5)}100%{background:rgba(248,113,113,.16)}}
+
+/* ── Apply-ready card actions ── */
+.rev-actions{display:flex;gap:9px;margin-top:14px;flex-wrap:wrap}
+.rbtn{font-size:12.5px;font-weight:560;padding:7px 14px;border-radius:7px;cursor:pointer;
+  border:1px solid var(--line2);background:var(--panel2);color:var(--text);
+  transition:background .12s,border-color .12s,opacity .12s}
+.rbtn:hover{background:var(--elevated)}
+.rbtn:disabled{opacity:.5;cursor:default}
+.rbtn.fill{border-color:rgba(20,217,196,.5);color:var(--accent);background:var(--accent-soft)}
+.rbtn.fill:hover{background:rgba(20,217,196,.16)}
+.rbtn.done{border-color:rgba(79,175,120,.5);color:var(--green)}
+.rbtn.done:hover{background:rgba(79,175,120,.12)}
+.rbtn.del{color:var(--faint);margin-left:auto}
+.rbtn.del:hover{border-color:rgba(217,111,111,.5);color:var(--red);background:rgba(217,111,111,.08)}
+.rev-badge.applied{color:var(--green);background:rgba(79,175,120,.14);border-color:rgba(79,175,120,.4)}
+.rev-card.applied{opacity:.5}
+.rev-card.applied .rev-actions{display:none}
+.rev-card{transition:opacity .3s,transform .3s,max-height .3s}
+.rev-card.slideout{opacity:0;transform:translateX(40px);max-height:0;
+  margin:0;padding-top:0;padding-bottom:0;overflow:hidden;border-width:0}
 .hl-req{color:var(--amber);background:rgba(251,191,36,.08);border-radius:3px;padding:1px 3px}
 
 /* ── View dropdown menu (macOS-style) ── */
@@ -650,6 +670,31 @@ function jumpq(el){
   if(t){ t.scrollIntoView({block:'center',behavior:'smooth'});
     t.classList.add('flash'); setTimeout(function(){t.classList.remove('flash');},1400); }
 }
+function applyfill(el){
+  var old=el.textContent; el.disabled=true; el.textContent='Opening browser…';
+  fetch('/apply/'+el.dataset.i,{method:'POST'}).then(function(r){return r.json();})
+    .then(function(d){ el.textContent = d.ok ? 'Opened ↗ — fill & submit' : (d.error||'No apply URL');
+      setTimeout(function(){el.disabled=false; el.textContent=old;}, 5000); })
+    .catch(function(){ el.disabled=false; el.textContent=old; });
+}
+function markApplied(el){
+  var f=new FormData(); f.append('id', el.dataset.i);
+  fetch('/applied',{method:'POST',body:f}).then(function(){
+    var card=el.closest('.rev-card');
+    var b=card.querySelector('.rev-badge');
+    if(b){ b.textContent='applied'; b.className='rev-badge applied'; }
+    card.classList.add('applied');
+  });
+}
+function dismissJob(el){
+  var f=new FormData(); f.append('id', el.dataset.i);
+  var card=el.closest('.rev-card');
+  card.style.maxHeight=card.offsetHeight+'px';
+  fetch('/dismiss',{method:'POST',body:f}).then(function(){
+    requestAnimationFrame(function(){ card.classList.add('slideout'); });
+    setTimeout(function(){ card.remove(); }, 340);
+  });
+}
 </script>"""
 
 
@@ -824,9 +869,13 @@ def _review_cards(rows) -> str:
         except Exception:
             a = {}
         rejected = not r["apply_ok"]
+        applied = r["status"] == "applied"
         reason_cls = "fail" if rejected else "pass"
-        badge = (f"<span class='rev-badge {reason_cls}'>"
-                 f"{'rejected' if rejected else 'apply-ready'}</span>")
+        if applied:
+            badge = "<span class='rev-badge applied'>applied</span>"
+        else:
+            badge = (f"<span class='rev-badge {reason_cls}'>"
+                     f"{'rejected' if rejected else 'apply-ready'}</span>")
         dq = a.get("disqualifiers") or []
         chips, marks = [], []
         for i, d in enumerate(dq):
@@ -843,8 +892,19 @@ def _review_cards(rows) -> str:
                 else highlight_html(r["description"] or ""))
         loc = "Remote" if r["remote"] else (r["location"] or "—")
         afit = r["afit"] if r["afit"] is not None else "—"
+        actions = ""
+        if not rejected:
+            actions = (
+                f"<div class=rev-actions>"
+                f"<button class='rbtn fill' data-i='{r['id']}' onclick='applyfill(this)'>"
+                f"Fill application &#8599;</button>"
+                f"<button class='rbtn done' data-i='{r['id']}' onclick='markApplied(this)'>"
+                f"Mark applied</button>"
+                f"<button class='rbtn del' data-i='{r['id']}' onclick='dismissJob(this)'>"
+                f"Delete</button></div>")
+        card_cls = "rev-card applied" if applied else "rev-card"
         cards.append(
-            "<div class=rev-card><div class=rev-head>"
+            f"<div class='{card_cls}'><div class=rev-head>"
             f"<span class=rev-fit>{afit}</span>"
             "<div class=rev-headmain>"
             f"<a class=rev-role href='{_e(r['url'] or '#')}' target=_blank rel=noopener>"
@@ -853,7 +913,7 @@ def _review_cards(rows) -> str:
             f"{_TYPE_LABEL.get(r['company_type'], '—')} &middot; {_e(loc)}</div></div>"
             f"{badge}</div>"
             f"<div class='rev-reason {reason_cls}'>{_e(a.get('reason', ''))}</div>"
-            f"{dq_html}<div class=rev-desc>{desc}</div></div>"
+            f"{dq_html}<div class=rev-desc>{desc}</div>{actions}</div>"
         )
     return "<div class='panel review'>" + "".join(cards) + "</div>"
 
@@ -1029,6 +1089,43 @@ def pin_route(id: int = Form(...)):
         new = 0 if (cur and cur["pinned"]) else 1
         conn.execute("UPDATE jobs SET pinned = ? WHERE id = ?", [new, id])
     return JSONResponse({"pinned": bool(new)})
+
+
+@app.post("/apply/{id}")
+def apply_route(id: int):
+    """Open a visible browser on this job's application form, pre-filled from
+    your profile. You review + submit. Runs as a detached subprocess so the
+    browser stays alive independent of this request."""
+    import subprocess
+    import sys
+    from pathlib import Path
+    with db.connect() as conn:
+        r = conn.execute("SELECT url FROM jobs WHERE id = ?", [id]).fetchone()
+    if not r or not r["url"] or r["url"] == "#":
+        return JSONResponse({"ok": False, "error": "no apply URL"})
+    root = Path(__file__).resolve().parents[1]          # .../aicode (has jobhunt pkg)
+    subprocess.Popen([sys.executable, "-m", "jobhunt.apply.autofill", str(id)], cwd=str(root))
+    return JSONResponse({"ok": True})
+
+
+@app.post("/applied")
+def applied_route(id: int = Form(...)):
+    with db.connect() as conn:
+        conn.execute("UPDATE jobs SET status = 'applied' WHERE id = ?", [id])
+        n = conn.execute("UPDATE applications SET status = 'submitted', "
+                         "submitted_at = CURRENT_TIMESTAMP "
+                         "WHERE job_id = ? AND status = 'draft'", [id]).rowcount
+        if not n:                                        # applied by hand, no draft
+            conn.execute("INSERT INTO applications (job_id, status, submitted_at) "
+                         "VALUES (?, 'submitted', CURRENT_TIMESTAMP)", [id])
+    return JSONResponse({"ok": True})
+
+
+@app.post("/dismiss")
+def dismiss_route(id: int = Form(...)):
+    with db.connect() as conn:
+        conn.execute("UPDATE jobs SET status = 'closed' WHERE id = ?", [id])
+    return JSONResponse({"ok": True})
 
 
 @app.post("/add", response_class=HTMLResponse)
