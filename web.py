@@ -348,7 +348,9 @@ td a:hover{
 .rev-fit{font-variant-numeric:tabular-nums;font-weight:700;font-size:17px;
   color:var(--accent);min-width:32px;letter-spacing:-.02em}
 .rev-headmain{flex:1;min-width:0}
-.rev-role{font-weight:600;font-size:14.5px;letter-spacing:-.012em;color:var(--text)}
+.rev-role{font-weight:600;font-size:15px;letter-spacing:-.012em;color:var(--text);
+  display:inline-block;transition:color .12s}
+.rev-role:hover{color:var(--accent)}
 .rev-sub{color:var(--muted);font-size:12.5px;margin-top:3px}
 .rev-badge{font-size:10.5px;font-weight:600;padding:3px 10px;border-radius:999px;
   white-space:nowrap;text-transform:uppercase;letter-spacing:.04em}
@@ -825,7 +827,8 @@ def _review_cards(rows) -> str:
             "<div class=rev-card><div class=rev-head>"
             f"<span class=rev-fit>{afit}</span>"
             "<div class=rev-headmain>"
-            f"<div class=rev-role>{_e(r['title'])}</div>"
+            f"<a class=rev-role href='{_e(r['url'] or '#')}' target=_blank rel=noopener>"
+            f"{_e(r['title'])} &#8599;</a>"
             f"<div class=rev-sub>{_e(r['company'])} &middot; "
             f"{_TYPE_LABEL.get(r['company_type'], '—')} &middot; {_e(loc)}</div></div>"
             f"{badge}</div>"
