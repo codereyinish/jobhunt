@@ -413,6 +413,17 @@ td a:hover{
 .fmerge path{fill:none;stroke:var(--line2);stroke-width:2;stroke-dasharray:5 6;
   animation:dashmove 1s linear infinite}
 @keyframes dashmove{to{stroke-dashoffset:-22}}
+.colist{display:flex;flex-direction:column}
+.corow{display:flex;align-items:center;gap:13px;padding:12px 4px;border-top:1px solid var(--line)}
+.corow:first-child{border-top:none}
+.corow .love{opacity:.45;margin:0}
+.corow:hover .love{opacity:1}
+.coname{font-weight:600;color:var(--text)}
+.coname:hover{color:var(--accent)}
+.covendor{font-size:10.5px;color:var(--faint);text-transform:uppercase;letter-spacing:.07em}
+.corm{margin-left:auto;background:none;border:1px solid var(--line2);color:var(--muted);
+  width:27px;height:27px;border-radius:7px;font-size:16px;padding:0;line-height:1;cursor:pointer}
+.corm:hover{color:var(--red);border-color:var(--red)}
 .fnode.ready{border-color:var(--accent);box-shadow:0 0 30px var(--accent-soft)}
 .fhead{font-size:10.5px;text-transform:uppercase;letter-spacing:.09em;color:var(--muted);
   font-weight:600;display:flex;align-items:center;gap:8px}
@@ -1048,7 +1059,7 @@ def _flow_page(notice: str = "") -> str:
     co_node = ("<div class=fnode><div class=fhead><span class=fnum>1</span> Companies &middot; ATS</div>"
                f"<div class=fbig>{ncomp}</div>"
                "<div class=fdesc>Greenhouse / Lever / Ashby / Workday boards</div>"
-               "<a class=fbtn href='/'>Manage &rarr;</a></div>")
+               "<a class=fbtn href='/companies'>Manage &rarr;</a></div>")
     left = f"<div class=fcol>{kw_node}{co_node}</div>"
     merge = ("<svg class=fmerge viewBox='0 0 64 240' preserveAspectRatio=none aria-hidden=true>"
              "<path d='M0,58 C36,58 30,120 64,120'/>"
@@ -1069,6 +1080,67 @@ def _flow_page(notice: str = "") -> str:
             + left + merge + fetch_node + C + an_node + C + ready_node
             + "</div></div>")
     return _page(top + banner + flow)
+
+
+def _companies_page(notice: str = "") -> str:
+    from .core.config import companies, company_board_url
+    from .core.favorites import loved_companies
+    comp = companies()
+    loved = loved_companies()
+    top = ("<div class=flowtop><h1>jobhunt · companies</h1>"
+           "<a class=tool-btn href='/flow'>&larr; pipeline</a></div>")
+    banner = f"<div class=result style='margin-bottom:18px'>{notice}</div>" if notice else ""
+    add_form = ("<div class=panel><h2>Add a company</h2>"
+                "<form class=row method=post action='/company-add'>"
+                "<input class=url type=text name=url "
+                "placeholder='Paste a careers link — Greenhouse / Lever / Ashby / Workday…'>"
+                "<button type=submit>Add &amp; fetch</button></form></div>")
+    rows = []
+    for vendor in ("greenhouse", "lever", "ashby", "workday"):
+        for tok in comp.get(vendor, []):
+            name = tok.get("tenant") if isinstance(tok, dict) else tok
+            on = " on" if name in loved else ""
+            rows.append(
+                "<div class=corow>"
+                f"<span class='love{on}' data-c=\"{_e(name)}\" onclick='love(this)' "
+                "title='love'>&#9829;</span>"
+                f"<a class=coname href='{_e(company_board_url(vendor, tok))}' target=_blank "
+                f"rel=noopener>{_e(name)}</a>"
+                f"<span class=covendor>{vendor}</span>"
+                "<form method=post action='/company-remove' style='margin:0;margin-left:auto'>"
+                f"<input type=hidden name=vendor value='{vendor}'>"
+                f"<input type=hidden name=token value=\"{_e(name)}\">"
+                "<button class=corm type=submit title='remove'>&times;</button></form>"
+                "</div>")
+    body = ("<div class=panel><h2>ATS companies &nbsp;·&nbsp; "
+            f"{len(rows)}</h2><div class=colist>" + "".join(rows) + "</div></div>")
+    return _page(top + banner + add_form + body)
+
+
+@app.get("/companies", response_class=HTMLResponse)
+def companies_route():
+    return _companies_page()
+
+
+@app.post("/company-add", response_class=HTMLResponse)
+def company_add_route(url: str = Form("")):
+    from .cli import _fetch_favorite, _ingest
+    from .core.favorites import add_favorite, parse_company_url
+    entry = parse_company_url(url)
+    if not entry:
+        return _companies_page("Couldn't detect an ATS from that link.")
+    state = add_favorite(entry)
+    raw = _fetch_favorite(entry)
+    added = len(_ingest(raw, settings())) if raw else 0
+    label = entry.get("token") or entry.get("tenant")
+    return _companies_page(f"{entry['vendor']}/{label} {state} · {added} matching jobs added.")
+
+
+@app.post("/company-remove", response_class=HTMLResponse)
+def company_remove_route(vendor: str = Form(...), token: str = Form(...)):
+    from .core.config import remove_company
+    remove_company(vendor, token)
+    return _companies_page(f"Removed {vendor}/{token}.")
 
 
 def _bg(args: list):

@@ -99,16 +99,52 @@ def companies() -> dict:
         with open(fav_path) as f:
             fav = yaml.safe_load(f) or {}
 
+    hidden = set(fav.get("_hidden") or [])       # "vendor:token" entries to hide
     merged: dict = {}
-    for key in set(base) | set(fav):
+    for key in (set(base) | set(fav)) - {"_hidden"}:
         a, b = base.get(key) or [], fav.get(key) or []
         if key == "workday":
             seen, out = set(), []
             for w in a + b:
                 h = w.get("host") if isinstance(w, dict) else w
-                if h and h not in seen:
+                t = w.get("tenant") if isinstance(w, dict) else w
+                if h and h not in seen and f"workday:{t}" not in hidden:
                     seen.add(h); out.append(w)
             merged[key] = out
         else:
-            merged[key] = list(dict.fromkeys(a + b))
+            merged[key] = [t for t in dict.fromkeys(a + b) if f"{key}:{t}" not in hidden]
     return merged
+
+
+def remove_company(vendor: str, token: str) -> None:
+    """Remove a company from the ATS list — drops it from favorites, or hides a
+    curated default via a _hidden marker."""
+    fav_path = CONFIG_DIR / "favorites.yaml"
+    fav = {}
+    if fav_path.exists():
+        with open(fav_path) as f:
+            fav = yaml.safe_load(f) or {}
+    lst = fav.get(vendor) or []
+    key = f"{vendor}:{token}"
+    if vendor == "workday":
+        lst = [w for w in lst if (w.get("tenant") if isinstance(w, dict) else w) != token]
+    else:
+        lst = [t for t in lst if t != token]
+    fav[vendor] = lst
+    fav.setdefault("_hidden", [])
+    if key not in fav["_hidden"]:
+        fav["_hidden"].append(key)
+    with open(fav_path, "w") as f:
+        yaml.safe_dump(fav, f, sort_keys=True)
+
+
+def company_board_url(vendor: str, token) -> str:
+    if vendor == "greenhouse":
+        return f"https://boards.greenhouse.io/{token}"
+    if vendor == "lever":
+        return f"https://jobs.lever.co/{token}"
+    if vendor == "ashby":
+        return f"https://jobs.ashbyhq.com/{token}"
+    if vendor == "workday" and isinstance(token, dict):
+        return f"https://{token.get('host', '')}"
+    return "#"
