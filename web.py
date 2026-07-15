@@ -1094,10 +1094,20 @@ def _flow_page(notice: str = "") -> str:
 
 def _companies_page(notice: str = "") -> str:
     from .core.config import companies, company_board_url
+    from .core.favorites import loved_companies
     comp = companies()
+    loved = sorted(loved_companies())
     top = ("<div class=flowtop><a href='/' class=brand>jobhunt</a>"
            "<a class=tool-btn href='/flow'>&larr; pipeline</a></div>")
     banner = f"<div class=result style='margin-bottom:18px'>{notice}</div>" if notice else ""
+    loved_section = ""
+    if loved:
+        chips = "".join(
+            f"<span class=chip><a href='/?company={_e(c)}' style='color:inherit'>{_e(c)}</a>"
+            f"<span class='love on chip-x' data-c=\"{_e(c)}\" onclick='love(this)'>&#9829;</span>"
+            "</span>" for c in loved)
+        loved_section = (f"<div class=panel><h2>Loved companies &nbsp;·&nbsp; {len(loved)}</h2>"
+                         f"<div class=chips>{chips}</div></div>")
     add_form = ("<div class=panel><h2>Add a company</h2>"
                 "<form class=row method=post action='/company-add'>"
                 "<input class=url type=text name=url "
@@ -1119,7 +1129,7 @@ def _companies_page(notice: str = "") -> str:
                 "</div>")
     body = ("<div class=panel><h2>ATS companies &nbsp;·&nbsp; "
             f"{len(rows)}</h2><div class=colist>" + "".join(rows) + "</div></div>")
-    return _page(top + banner + add_form + body)
+    return _page(top + banner + loved_section + add_form + body)
 
 
 @app.get("/companies", response_class=HTMLResponse)
