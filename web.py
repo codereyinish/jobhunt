@@ -25,9 +25,9 @@ CSS = """
   --text:#f0f0f1;
   --muted:#b2b2ba;
   --faint:#8c8c95;
-  --accent:#eaeaec;
-  --accent-2:#ffffff;
-  --accent-soft:rgba(234,234,236,.09);
+  --accent:#14d9c4;
+  --accent-2:#4fe8d7;
+  --accent-soft:rgba(20,217,196,.09);
   --green:#4faf78;
   --amber:#c99a4a;
   --red:#d96f6f;
@@ -43,7 +43,7 @@ body{
   font-size:14px;line-height:1.55;letter-spacing:-.004em;
   -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
 }
-::selection{background:rgba(234,234,236,.16);color:var(--text)}
+::selection{background:rgba(20,217,196,.16);color:var(--text)}
 code{
   background:var(--panel2);border:1px solid var(--line2);
   border-radius:4px;padding:1px 5px;
@@ -93,8 +93,8 @@ a:hover{color:var(--accent-2)}
 }
 .tool-btn:hover{
   color:var(--text);
-  border-color:rgba(234,234,236,.38);
-  background:rgba(234,234,236,.04);
+  border-color:rgba(20,217,196,.38);
+  background:rgba(20,217,196,.04);
 }
 .heart-btn{
   width:37px;height:37px;border-radius:50%;
@@ -172,7 +172,7 @@ button{
 }
 button:hover{
   background:var(--accent-2);
-  box-shadow:0 0 18px rgba(234,234,236,.22);
+  box-shadow:0 0 18px rgba(20,217,196,.22);
 }
 button:active{transform:translateY(1px);box-shadow:none}
 .hint{color:var(--faint);font-size:12px;line-height:1.5}
@@ -203,7 +203,7 @@ td{
   vertical-align:middle;
 }
 tbody tr{transition:background .08s}
-tbody tr:hover td{background:rgba(234,234,236,.022)}
+tbody tr:hover td{background:rgba(20,217,196,.022)}
 td.num{
   color:var(--faint);width:28px;
   font-variant-numeric:tabular-nums;
@@ -257,7 +257,7 @@ td a{
 }
 td a:hover{
   color:var(--accent);
-  border-color:rgba(234,234,236,.3);
+  border-color:rgba(20,217,196,.3);
   background:var(--accent-soft);
 }
 
@@ -320,7 +320,7 @@ td a:hover{
   color:var(--muted);width:100%;cursor:pointer;
   transition:border-color .15s;
 }
-.filein:hover{border-color:rgba(234,234,236,.3)}
+.filein:hover{border-color:rgba(20,217,196,.3)}
 .modal-close{
   position:absolute;top:14px;right:16px;cursor:pointer;
   color:var(--faint);font-size:20px;line-height:1;text-decoration:none;
