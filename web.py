@@ -14,40 +14,36 @@ from .match.score import location_ok, score_job
 app = FastAPI()
 
 CSS = """
-/* ── Design system: midnight-slate base + electric teal accent ── */
+/* ── Design system: neutral graphite, monochrome + soft-white accents ── */
 :root{
-  --bg:#080a0f;
-  --panel:#0d1019;
-  --panel2:#131822;
-  --elevated:#18202e;
-  --line:#1a1f30;
-  --line2:#232d42;
-  --text:#dce1ef;
-  --muted:#8b93a6;
-  --faint:#646d82;
-  --accent:#14d9c4;
-  --accent-2:#4fe8d7;
-  --accent-soft:rgba(20,217,196,.09);
-  --green:#34d399;
-  --amber:#fbbf24;
-  --red:#f87171;
-  --violet:#a78bfa;
+  --bg:#0a0a0b;
+  --panel:#131314;
+  --panel2:#191919;
+  --elevated:#212123;
+  --line:#242426;
+  --line2:#323235;
+  --text:#ececed;
+  --muted:#a0a0a6;
+  --faint:#6e6e75;
+  --accent:#eaeaec;
+  --accent-2:#ffffff;
+  --accent-soft:rgba(234,234,236,.09);
+  --green:#4faf78;
+  --amber:#c99a4a;
+  --red:#d96f6f;
+  --violet:#9a91ad;
 }
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
 body{
   margin:0;
-  background:
-    radial-gradient(ellipse 1100px 480px at 62% -60px,rgba(20,217,196,.032) 0%,transparent 65%),
-    radial-gradient(ellipse 520px 360px at 4% 88%,rgba(167,139,250,.022) 0%,transparent 55%),
-    var(--bg);
+  background:var(--bg);
   color:var(--text);
   font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif;
-  font-size:14px;line-height:1.56;letter-spacing:-.007em;
+  font-size:14px;line-height:1.55;letter-spacing:-.004em;
   -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
-  font-feature-settings:'cv02','cv03','cv04','ss01';
 }
-::selection{background:rgba(20,217,196,.2);color:var(--text)}
+::selection{background:rgba(234,234,236,.16);color:var(--text)}
 code{
   background:var(--panel2);border:1px solid var(--line2);
   border-radius:4px;padding:1px 5px;
@@ -97,8 +93,8 @@ a:hover{color:var(--accent-2)}
 }
 .tool-btn:hover{
   color:var(--text);
-  border-color:rgba(20,217,196,.38);
-  background:rgba(20,217,196,.04);
+  border-color:rgba(234,234,236,.38);
+  background:rgba(234,234,236,.04);
 }
 .heart-btn{
   width:37px;height:37px;border-radius:50%;
@@ -168,7 +164,7 @@ label.chk{
 }
 label.chk:hover{color:var(--text)}
 button{
-  background:var(--accent);color:#011a18;
+  background:var(--accent);color:#0a0a0b;
   border:none;border-radius:8px;
   padding:8px 16px;font-size:13.5px;font-weight:640;
   cursor:pointer;letter-spacing:-.01em;
@@ -176,7 +172,7 @@ button{
 }
 button:hover{
   background:var(--accent-2);
-  box-shadow:0 0 18px rgba(20,217,196,.22);
+  box-shadow:0 0 18px rgba(234,234,236,.22);
 }
 button:active{transform:translateY(1px);box-shadow:none}
 .hint{color:var(--faint);font-size:12px;line-height:1.5}
@@ -207,7 +203,7 @@ td{
   vertical-align:middle;
 }
 tbody tr{transition:background .08s}
-tbody tr:hover td{background:rgba(20,217,196,.022)}
+tbody tr:hover td{background:rgba(234,234,236,.022)}
 td.num{
   color:var(--faint);width:28px;
   font-variant-numeric:tabular-nums;
@@ -261,7 +257,7 @@ td a{
 }
 td a:hover{
   color:var(--accent);
-  border-color:rgba(20,217,196,.3);
+  border-color:rgba(234,234,236,.3);
   background:var(--accent-soft);
 }
 
@@ -324,7 +320,7 @@ td a:hover{
   color:var(--muted);width:100%;cursor:pointer;
   transition:border-color .15s;
 }
-.filein:hover{border-color:rgba(20,217,196,.3)}
+.filein:hover{border-color:rgba(234,234,236,.3)}
 .modal-close{
   position:absolute;top:14px;right:16px;cursor:pointer;
   color:var(--faint);font-size:20px;line-height:1;text-decoration:none;
@@ -382,9 +378,9 @@ td a:hover{
   box-shadow:0 18px 48px rgba(0,0,0,.55);display:flex;flex-direction:column;gap:2px;
   max-height:320px;overflow-y:auto}
 .menu-list a{padding:7px 11px;border-radius:7px;font-size:12px;color:var(--text);white-space:nowrap}
-.menu-list a:hover{background:var(--accent);color:#08101f}
+.menu-list a:hover{background:var(--accent);color:#0a0a0b}
 .menu-list a.sel{color:var(--accent)}
-.menu-list a.sel:hover{color:#08101f}
+.menu-list a.sel:hover{color:#0a0a0b}
 .hmenu{margin:0}
 .hmenu>summary{background:none;border:none;padding:0 0 12px;gap:5px;color:var(--muted);
   font-size:11px;text-transform:uppercase;letter-spacing:.07em;font-weight:650}
@@ -427,7 +423,7 @@ td a:hover{
 .fnode.ready{border-color:var(--accent);box-shadow:0 0 30px var(--accent-soft)}
 .fhead{font-size:10.5px;text-transform:uppercase;letter-spacing:.09em;color:var(--muted);
   font-weight:600;display:flex;align-items:center;gap:8px}
-.fnum{width:19px;height:19px;border-radius:50%;background:var(--accent);color:#06101f;
+.fnum{width:19px;height:19px;border-radius:50%;background:var(--accent);color:#0a0a0b;
   display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0}
 .fbig{font-size:42px;font-weight:700;letter-spacing:-.03em;font-variant-numeric:tabular-nums;line-height:1;margin-top:4px}
 .fdesc{font-size:12px;color:var(--muted);line-height:1.45}
