@@ -116,8 +116,8 @@ a:hover{color:var(--accent-2)}
   box-shadow:0 2px 8px rgba(0,0,0,.22),inset 0 1px 0 rgba(255,255,255,.022);
 }
 .panel h2{
-  font-size:10px;text-transform:uppercase;letter-spacing:.14em;
-  color:var(--faint);margin:0 0 16px;font-weight:600;
+  font-size:10.5px;text-transform:uppercase;letter-spacing:.13em;
+  color:var(--muted);margin:0 0 16px;font-weight:600;
 }
 details.panel>summary{
   list-style:none;cursor:pointer;user-select:none;
