@@ -33,7 +33,30 @@ CSS = """
   --red:#d96f6f;
   --violet:#9a91ad;
   --info:#7aa2e8;
+  --shadow:rgba(0,0,0,.22);
 }
+/* ── Light theme (Simplify-inspired: clean white, soft borders) ── */
+html[data-theme=light]{
+  --bg:#ffffff;
+  --panel:#ffffff;
+  --panel2:#f5f7f9;
+  --elevated:#eceff2;
+  --line:#e8ebee;
+  --line2:#d9dee3;
+  --text:#1a1e24;
+  --muted:#5b6572;
+  --faint:#8a929e;
+  --accent:#0e9f92;
+  --accent-2:#0bbcac;
+  --accent-soft:rgba(14,159,146,.09);
+  --green:#1a9a61;
+  --amber:#a9791a;
+  --red:#d0483f;
+  --violet:#7c73a0;
+  --info:#3a72cf;
+  --shadow:rgba(20,30,50,.08);
+}
+html[data-theme=light] body{background:linear-gradient(#fbfcfd,#ffffff 220px)}
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
 body{
@@ -114,7 +137,7 @@ a:hover{color:var(--accent-2)}
 .panel{
   background:var(--panel);border:1px solid var(--line);
   border-radius:14px;padding:20px 22px;margin-bottom:16px;
-  box-shadow:0 2px 8px rgba(0,0,0,.22),inset 0 1px 0 rgba(255,255,255,.022);
+  box-shadow:0 1px 3px var(--shadow);
 }
 .panel h2{
   font-size:10.5px;text-transform:uppercase;letter-spacing:.13em;
@@ -243,6 +266,11 @@ td.num{
   font-family:ui-monospace,'Cascadia Code','Fira Code',monospace;letter-spacing:0;
 }
 .company{font-weight:600;white-space:nowrap;letter-spacing:-.01em}
+td.company{display:flex;align-items:center;gap:9px}
+.cav{width:26px;height:26px;border-radius:7px;flex-shrink:0;
+  display:inline-flex;align-items:center;justify-content:center;
+  font-size:12px;font-weight:700;color:var(--muted);
+  background:var(--panel2);border:1px solid var(--line2)}
 .cname.loved{color:var(--accent)}
 .love{
   margin-left:8px;cursor:pointer;
@@ -371,7 +399,7 @@ td a:hover{
 /* ── Review cards (latest-call audit view) ── */
 .review{display:flex;flex-direction:column;gap:14px}
 .rev-card{background:var(--panel2);border:1px solid var(--line);border-radius:13px;
-  padding:20px 24px;box-shadow:0 2px 6px rgba(0,0,0,.2)}
+  padding:20px 24px;box-shadow:0 1px 3px var(--shadow)}
 .rev-head{display:flex;align-items:flex-start;gap:16px}
 .rev-fit{font-variant-numeric:tabular-nums;font-weight:700;font-size:19px;
   color:var(--accent);min-width:34px;letter-spacing:-.02em}
@@ -723,6 +751,7 @@ def _toggles() -> str:
 def _toolbar() -> str:
     return (
         "<div class=toolbar>"
+        "<button class=tool-btn id=themebtn onclick='toggleTheme()' title='Light / dark'></button>"
         "<a class=tool-btn href='/flow'>&#9781;&nbsp; Pipeline</a>"
         "<label for=ctxtoggle class=tool-btn>&#9998;&nbsp; Resume</label>"
         "<label for=preftoggle class=tool-btn>&#10022;&nbsp; Preference</label>"
@@ -805,6 +834,8 @@ def _pref_modal() -> str:
 def _page(body: str) -> str:
     return (f"<!doctype html><html lang=en><head><meta charset=utf-8>"
             f"<meta name=viewport content='width=device-width,initial-scale=1'>"
+            "<script>(function(){var t=localStorage.getItem('theme');"
+            "if(t)document.documentElement.dataset.theme=t;})();</script>"
             f"<title>jobhunt</title><style>{CSS}</style></head>"
             f"<body>{_toggles()}{_fav_modal()}{_pref_modal()}{_context_modal()}"
             f"<div class=wrap>{body}</div>{_JS}</body></html>")
@@ -913,6 +944,17 @@ function loveJob(el){     // rescue a rejected job into apply-ready
   var card=el.closest('.rev-card');
   fetch('/love-job',{method:'POST',body:f}).then(function(){ _slideOut(card); });
 }
+function _setThemeIcon(){
+  var b=document.getElementById('themebtn');
+  if(b) b.innerHTML=document.documentElement.dataset.theme==='light'
+    ? '&#9789;&nbsp; Dark' : '&#9788;&nbsp; Light';
+}
+function toggleTheme(){
+  var next=document.documentElement.dataset.theme==='light'?'dark':'light';
+  document.documentElement.dataset.theme=next;
+  localStorage.setItem('theme',next); _setThemeIcon();
+}
+_setThemeIcon();
 function liveFilter(el){   // instant filter of the loaded rows
   var q=el.value.toLowerCase(), n=0, panel=el.closest('.panel');
   panel.querySelectorAll('tbody tr').forEach(function(tr){
@@ -1091,7 +1133,7 @@ def _table(rows, fitcol, loved: set, show_why: bool = False, base: dict | None =
             f"<td class=score>{r['score']}</td>"
             f"<td class=tier>{_TIER_LABEL.get(r['tier'], r['tier'] or '—')}</td>"
             f"<td class='ctype{ct_cls}'>{_TYPE_LABEL.get(ctype, '—')}</td>"
-            f"<td class=company>{heart}</td>"
+            f"<td class=company><span class=cav>{_e((comp[:1] or '?').upper())}</span>{heart}</td>"
             f"<td class=role>{_e(r['title'])}</td>"
             f"<td class=loc>{loc_html}</td>{why_c}"
             f"<td class=posted>{_posted_ago(r['posted_at'])}</td>"
