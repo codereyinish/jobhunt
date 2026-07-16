@@ -802,7 +802,8 @@ def _table(rows, fitcol, loved: set, show_why: bool = False, base: dict | None =
     fit_h = "<th>Fit</th>" if fitcol else ""
     why_h = "<th>Why</th>" if show_why else ""
     score_h = _hmenu("Score", "sort", sort,
-                     [("", "High → Low"), ("score_asc", "Low → High")], base)
+                     [("", "High → Low"), ("score_asc", "Low → High"),
+                      ("fetch", "Latest fetch")], base)
     tier_h = _hmenu("Tier", "tier", tier, [("", "All"), ("voice_speech", "Voice"),
                     ("ai_ml", "AI/ML"), ("swe_backend", "SWE")], base)
     type_h = _hmenu("Type", "ctype", ctype, [("", "All"), ("funded_startup", "Startup"),
@@ -931,7 +932,8 @@ def _highlight_quotes(desc: str, marks: list) -> str:
 def _render(tier: str, min_score: int, fresh: bool, sort: str,
             preference: str = "", notice: str = "", view: str = "",
             min_fit: int = 50, page: int = 0, ctype: str = "",
-            locf: str = "", af: str = "", company: str = "", run: int = 0) -> str:
+            locf: str = "", af: str = "", company: str = "", run: int = 0,
+            fetch: int = 0) -> str:
     from .core.favorites import load_preference, loved_companies
     if not preference:
         preference = load_preference()
@@ -939,6 +941,7 @@ def _render(tier: str, min_score: int, fresh: bool, sort: str,
 
     show_why = view in ("apply", "rejected", "call")
     call_runs, cur_run = [], 0
+    fetch_runs, cur_fetch = [], 0
     if view in ("call", "review"):
         with db.connect() as _c:
             call_runs = [r[0] for r in _c.execute(
@@ -966,8 +969,16 @@ def _render(tier: str, min_score: int, fresh: bool, sort: str,
         q += " ORDER BY afit DESC"
         fitcol = "afit"
     else:
+        if sort == "fetch":
+            with db.connect() as _c:
+                fetch_runs = [r[0] for r in _c.execute(
+                    "SELECT DISTINCT fetch_run FROM jobs WHERE fetch_run IS NOT NULL "
+                    "AND status != 'closed' ORDER BY fetch_run DESC").fetchall()]
+            cur_fetch = fetch if fetch in fetch_runs else (fetch_runs[0] if fetch_runs else 0)
         q = "SELECT * FROM jobs WHERE score >= ? AND status != 'closed'"
         p = [min_score]
+        if sort == "fetch":
+            q += " AND fetch_run = ?"; p.append(cur_fetch)
         if tier:
             q += " AND tier = ?"; p.append(tier)
         if ctype:
@@ -996,6 +1007,8 @@ def _render(tier: str, min_score: int, fresh: bool, sort: str,
             q += " ORDER BY fit IS NULL, fit DESC, score DESC"; fitcol = "fit"
         elif sort == "score_asc":
             q += " ORDER BY score ASC"; fitcol = None
+        elif sort == "fetch":
+            q += " ORDER BY score DESC, fetched_at DESC"; fitcol = None
         else:
             q += " ORDER BY score DESC, fetched_at DESC"; fitcol = None
 
@@ -1011,14 +1024,16 @@ def _render(tier: str, min_score: int, fresh: bool, sort: str,
     rows = rows[:_PAGE]
     base = {"view": view, "tier": tier, "min_score": min_score,
             "fresh": 1 if fresh else 0, "sort": sort, "min_fit": min_fit,
-            "ctype": ctype, "locf": locf, "af": af, "company": company, "run": run}
+            "ctype": ctype, "locf": locf, "af": af, "company": company, "run": run,
+            "fetch": fetch}
     notice_html = f"<div class=result>{notice}</div>" if notice else ""
     tabs = _tabs(view, base)
     if view == "review":
         content = (tabs + _call_nav(cur_run, call_runs, base)
                    + _review_cards(rows) + _pager(page, has_next, base))
     else:
-        content = (tabs + "<div class=panel>"
+        fetch_nav = _fetch_nav(cur_fetch, fetch_runs, base) if sort == "fetch" else ""
+        content = (tabs + fetch_nav + "<div class=panel>"
                    + _table(rows, fitcol, loved, show_why, base, tier, sort, ctype, locf, af,
                             avail_states, company)
                    + _pager(page, has_next, base) + "</div>")
@@ -1047,13 +1062,34 @@ def _call_nav(cur: int, runs: list, base: dict) -> str:
             f"{lnk(newer, 'newer call →')}</div>")
 
 
+def _fetch_nav(cur: int, runs: list, base: dict) -> str:
+    """Browse jobs one fetch batch at a time — latest fetch and the ones before."""
+    from urllib.parse import urlencode
+    if not runs:
+        return ("<div class=callnav><span class=callno>No fetches yet — run "
+                "<code>jobhunt source</code></span></div>")
+    idx = runs.index(cur) if cur in runs else 0
+    newer = runs[idx - 1] if idx > 0 else None            # runs sorted DESC
+    older = runs[idx + 1] if idx + 1 < len(runs) else None
+    latest = " · latest" if idx == 0 else ""
+
+    def lnk(r, label):
+        if r is None:
+            return f"<span class=faint>{label}</span>"
+        return f"<a href='?{urlencode({**base, 'sort': 'fetch', 'fetch': r, 'page': 0})}'>{label}</a>"
+    return (f"<div class=callnav>{lnk(older, '← earlier fetch')}"
+            f"<span class=callno>Fetch #{cur}{latest} &nbsp;·&nbsp; {len(runs)} total</span>"
+            f"{lnk(newer, 'later fetch →')}</div>")
+
+
 @app.get("/", response_class=HTMLResponse)
 def index(tier: str = "", min_score: int = 40, fresh: int = 0, sort: str = "",
           view: str = "", min_fit: int = 50, page: int = 0, ctype: str = "",
-          locf: str = "", af: str = "", company: str = "", run: int = 0):
+          locf: str = "", af: str = "", company: str = "", run: int = 0,
+          fetch: int = 0):
     return _render(tier, min_score, bool(fresh), sort, view=view, min_fit=min_fit,
                    page=max(0, page), ctype=ctype, locf=locf, af=af, company=company,
-                   run=run)
+                   run=run, fetch=fetch)
 
 
 @app.post("/resume", response_class=HTMLResponse)

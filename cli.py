@@ -31,6 +31,7 @@ def _ingest(raw: list[dict], cfg: dict) -> list[dict]:
 
     new_rows: list[dict] = []
     with db.connect() as conn:
+        run = db.next_fetch_run(conn)          # this batch's number (only used if we insert)
         for job in raw:
             passes, remote = location_ok(job, cfg)
             if require_us and not passes:
@@ -42,7 +43,8 @@ def _ingest(raw: list[dict], cfg: dict) -> list[dict]:
             job["score"], job["tier"] = score, tier
             if job.get("description"):
                 job["description"] = job["description"][:maxc]
-            if db.upsert_job(conn, job) == "inserted":
+            if db.upsert_job(conn, job, fetch_run=run) == "inserted":
+                job["fetch_run"] = run
                 new_rows.append(job)
     return new_rows
 

@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     analysis     TEXT,                  -- JSON: requirements, sponsorship, reason
     analyzed_at  TEXT,                  -- when the deep-read last ran
     analysis_run INTEGER,               -- which analyze run/"call" produced this
+    fetch_run    INTEGER,               -- which fetch batch first discovered this
     pinned       INTEGER DEFAULT 0,     -- manually added to the apply list
     status       TEXT DEFAULT 'new',    -- new | drafted | applied | skipped
     UNIQUE(source, source_id)
@@ -59,7 +60,7 @@ def connect():
         conn.executescript(SCHEMA)
         for col in ("fit INTEGER", "company_type TEXT", "afit INTEGER",
                     "apply_ok INTEGER", "analysis TEXT", "analyzed_at TEXT",
-                    "analysis_run INTEGER",
+                    "analysis_run INTEGER", "fetch_run INTEGER",
                     "pinned INTEGER DEFAULT 0"):                # migrate older DBs
             try:
                 conn.execute(f"ALTER TABLE jobs ADD COLUMN {col}")
@@ -71,7 +72,12 @@ def connect():
         conn.close()
 
 
-def upsert_job(conn, job: dict) -> str:
+def next_fetch_run(conn) -> int:
+    """The batch number for a new fetch: one past the highest stamped so far."""
+    return (conn.execute("SELECT COALESCE(MAX(fetch_run), 0) FROM jobs").fetchone()[0] or 0) + 1
+
+
+def upsert_job(conn, job: dict, fetch_run: int | None = None) -> str:
     """Insert a job, ignoring duplicates by (source, source_id).
 
     Returns 'inserted' for a new row, 'skipped' if it already existed.
@@ -79,13 +85,13 @@ def upsert_job(conn, job: dict) -> str:
     cur = conn.execute(
         """INSERT OR IGNORE INTO jobs
            (source, source_id, company, title, location, remote, url,
-            description, posted_at, score, tier, status)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
+            description, posted_at, score, tier, status, fetch_run)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
         (
             job["source"], job["source_id"], job.get("company"), job.get("title"),
             job.get("location"), int(job.get("remote", 0)), job.get("url"),
             job.get("description"), job.get("posted_at"), int(job.get("score", 0)),
-            job.get("tier"), job.get("status", "new"),
+            job.get("tier"), job.get("status", "new"), fetch_run,
         ),
     )
     return "inserted" if cur.rowcount else "skipped"
