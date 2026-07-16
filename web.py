@@ -609,6 +609,10 @@ def _dim_counts(conn, where: str, params: list) -> dict:
     locf = {"": total, "remote": one(" AND remote = 1"),
             "hybrid": one(" AND (lower(location) LIKE '%hybrid%' "
                           "OR lower(description) LIKE '%hybrid%')")}
+    import re
+    for r in conn.execute(f"SELECT location FROM jobs WHERE {where}", params):
+        for st in re.findall(r",\s*([A-Z]{2})\b", r[0] or ""):   # per-state counts
+            locf[st] = locf.get(st, 0) + 1
     return {"tier": tier, "ctype": ctype, "af": af, "locf": locf}
 _US_STATES = [
     ("AL", "Alabama"), ("AK", "Alaska"), ("AZ", "Arizona"), ("AR", "Arkansas"),
@@ -783,6 +787,11 @@ function jumpq(el){
   if(t){ t.scrollIntoView({block:'center',behavior:'smooth'});
     t.classList.add('flash'); setTimeout(function(){t.classList.remove('flash');},1400); }
 }
+document.addEventListener('click',function(e){
+  document.querySelectorAll('details.menu[open]').forEach(function(d){
+    if(!d.contains(e.target)) d.removeAttribute('open');   // close dropdowns on outside click
+  });
+});
 function applyfill(el){
   var old=el.textContent; el.disabled=true; el.textContent='Opening browser…';
   fetch('/apply/'+el.dataset.i,{method:'POST'}).then(function(r){return r.json();})
