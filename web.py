@@ -426,6 +426,19 @@ mark.hl-gate.flash{outline:2px solid var(--red);animation:qflash 1.4s ease}
 .filterbar2{display:flex;gap:18px;flex-wrap:wrap;align-items:center;margin:0 0 18px;
   padding:13px 18px;background:var(--panel);border:1px solid var(--line);border-radius:12px}
 .filterbar2 .hmenu>summary{padding:0}
+.tip{position:relative;display:inline-flex;align-items:center;vertical-align:middle}
+.tipmark{margin-left:5px;width:14px;height:14px;border-radius:50%;border:1px solid var(--line2);
+  color:var(--faint);font-size:9.5px;font-weight:700;font-style:normal;cursor:help;
+  display:inline-flex;align-items:center;justify-content:center;line-height:1}
+.tipmark:hover{border-color:var(--accent);color:var(--accent)}
+.tipbox{position:absolute;bottom:calc(100% + 9px);left:-6px;width:288px;z-index:60;
+  background:var(--panel2);border:1px solid var(--line2);border-radius:10px;padding:11px 13px;
+  font-size:12px;line-height:1.55;color:var(--muted);font-weight:400;text-transform:none;
+  letter-spacing:normal;box-shadow:0 16px 44px rgba(0,0,0,.6);text-align:left;
+  opacity:0;visibility:hidden;transition:opacity .13s;pointer-events:none}
+.tipbox b{color:var(--text);font-weight:640}
+.tipbox .k{color:var(--accent);font-weight:640}
+.tip:hover .tipbox{opacity:1;visibility:visible}
 .srch-list{padding:8px}
 .srch{display:flex;gap:6px}
 .srch input{min-width:150px;font-size:12.5px}
@@ -521,6 +534,21 @@ _AUTO_SQL = ("(source LIKE 'greenhouse%' OR source LIKE 'lever%' OR source LIKE 
              "OR source LIKE 'workday%' OR url LIKE '%greenhouse.io%' OR url LIKE '%lever.co%' "
              "OR url LIKE '%ashbyhq.com%' OR url LIKE '%myworkdayjobs.com%')")
 _CONF_SQL = "(url LIKE '%indeed.com%' OR url LIKE '%linkedin.com%' OR url LIKE '%glassdoor%')"
+
+_SCORE_TIP = ("<b>Score</b> — a fast keyword match on the job <b>title</b> only. Built from your "
+              "tier ladder (<span class=k>voice/speech &gt; AI/ML &gt; SWE</span>) plus title "
+              "keyword hits and a big boost for <span class=k>junior / entry / new-grad</span> "
+              "titles. It never reads the description, so it just surfaces relevant-looking roles "
+              "fast. Use it to scan breadth — not as proof you'll get in. Trust <b>Fit</b> for that.")
+_FIT_TIP = ("<b>Fit</b> — Claude reads the <b>full description against your resume &amp; profile</b> "
+            "and estimates your realistic odds of landing an interview/offer if you apply "
+            "(<span class=k>0–100</span>), weighing required years, degree, sponsorship, and how "
+            "competitive the role is. This is the number to prioritize by: high Fit = actually worth "
+            "applying; low Fit = a stretch even if the Score looks good.")
+
+
+def _tip(text: str) -> str:
+    return f"<span class=tip><span class=tipmark>i</span><span class=tipbox>{text}</span></span>"
 
 
 def _apply_filters(q: str, p: list, tier, ctype, company, locf, af) -> tuple[str, list]:
@@ -881,7 +909,7 @@ def _table(rows, fitcol, loved: set, show_why: bool = False, base: dict | None =
            loc_states=None, company: str = "", counts: dict | None = None) -> str:
     base = base or {}
     c = counts or {}
-    fit_h = "<th>Fit</th>" if fitcol else ""
+    fit_h = f"<th>Fit {_tip(_FIT_TIP)}</th>" if fitcol else ""
     why_h = "<th>Why</th>" if show_why else ""
     score_h = _hmenu("Score", "sort", sort,
                      [("", "High → Low"), ("score_asc", "Low → High"),
@@ -896,7 +924,7 @@ def _table(rows, fitcol, loved: set, show_why: bool = False, base: dict | None =
                    + (loc_states or []), base, c.get("locf"))
     apply_h = _hmenu("Apply", "af", af, [("", "All"), ("auto", "Auto"),
                      ("confirm", "Confirm"), ("manual", "Manual")], base, c.get("af"))
-    head = (f"<table><thead><tr><th></th>{fit_h}<th class=hdd>{score_h}</th>"
+    head = (f"<table><thead><tr><th></th>{fit_h}<th class=hdd>{score_h}{_tip(_SCORE_TIP)}</th>"
             f"<th class=hdd>{tier_h}</th><th class=hdd>{type_h}</th>"
             f"<th class=hdd>{_search_menu('Company', 'company', company, base)}</th>"
             f"<th>Role</th><th class=hdd>{loc_h}</th>{why_h}"
@@ -988,7 +1016,7 @@ def _review_cards(rows) -> str:
         card_cls = "rev-card applied" if applied else "rev-card"
         cards.append(
             f"<div class='{card_cls}'><div class=rev-head>"
-            f"<span class=rev-fit>{afit}</span>"
+            f"<span class=rev-fit>{afit}</span>{_tip(_FIT_TIP)}"
             "<div class=rev-headmain>"
             f"<a class=rev-role href='{_e(r['url'] or '#')}' target=_blank rel=noopener>"
             f"{_e(r['title'])} &#8599;</a>"
@@ -1124,6 +1152,29 @@ def _fetch_report(conn, limit: int = 6) -> str:
             f"<span class=frepn>{total} new</span>"
             f"<span class=frepbreak>{tb or '—'}</span>"
             f"<span class=frepauto>{auto} auto</span>"
+            f"<span class=freparrow>&rarr;</span></a>")
+    return f"<div class=frep>{''.join(lines)}</div>"
+
+
+def _call_report(conn, limit: int = 6) -> str:
+    """Per-analysis-call breakdown for the pipeline page: how many JDs Claude read,
+    how many passed your gates vs got filtered out. Rows link to that call."""
+    runs = [r[0] for r in conn.execute(
+        "SELECT DISTINCT analysis_run FROM jobs WHERE analysis_run IS NOT NULL "
+        "AND status != 'closed' ORDER BY analysis_run DESC").fetchall()]
+    if not runs:
+        return ""
+    lines = []
+    for cr in runs[:limit]:
+        w, pr = "analysis_run = ? AND status != 'closed'", [cr]
+        total = conn.execute(f"SELECT COUNT(*) FROM jobs WHERE {w}", pr).fetchone()[0]
+        passed = conn.execute(f"SELECT COUNT(*) FROM jobs WHERE {w} AND apply_ok = 1", pr).fetchone()[0]
+        lines.append(
+            f"<a class=freprow href='/?view=apply&run={cr}'>"
+            f"<span class=frepno>#{cr}</span>"
+            f"<span class=frepn>{total} read</span>"
+            f"<span class=frepbreak>{total - passed} filtered out</span>"
+            f"<span class=frepauto>{passed} passed</span>"
             f"<span class=freparrow>&rarr;</span></a>")
     return f"<div class=frep>{''.join(lines)}</div>"
 
@@ -1387,6 +1438,7 @@ def _flow_page(notice: str = "") -> str:
         ready = conn.execute("SELECT COUNT(*) FROM jobs WHERE (apply_ok = 1 OR pinned = 1) AND status != 'closed'").fetchone()[0]
         runs = conn.execute("SELECT COALESCE(MAX(analysis_run), 0) FROM jobs").fetchone()[0]
         fetch_report = _fetch_report(conn)
+        call_report = _call_report(conn)
     top = ("<div class=flowtop><a href='/' class=brand>jobhunt</a>"
            "<a class=tool-btn href='/'>&larr; jobs</a></div>")
     banner = f"<div class=result style='margin-bottom:18px'>{notice}</div>" if notice else ""
@@ -1420,10 +1472,13 @@ def _flow_page(notice: str = "") -> str:
                   "<button style='width:100%'>&#9654; Run fetch</button></form>"
                   f"{frep_block}"
                   "<a class=fbtn href='/'>Show all &rarr;</a></div>")
+    crep_block = (f"<div class=freplabel>per call &middot; newest first</div>{call_report}"
+                  if call_report else "")
     an_node = ("<div class=fnode><div class=fhead><span class=fnum>3</span> Analyze &middot; JD reader</div>"
                f"<div class=fbig id=pcAnalyzed>{analyzed}</div><div class=fdesc>read by Claude &middot; <span id=pcRuns>{runs}</span> call(s)</div>"
                "<form method=post action='/run-analyze' style='width:100%'>"
-               "<button style='width:100%'>&#9654; Run call now</button></form></div>")
+               "<button style='width:100%'>&#9654; Run call now</button></form>"
+               f"{crep_block}</div>")
     ready_node = ("<div class='fnode ready'><div class=fhead><span class=fnum>4</span> Ready to apply</div>"
                   f"<div class=fbig id=pcReady>{ready}</div><div class=fdesc>vetted &amp; pinned jobs</div>"
                   "<a class=fbtn href='/?view=apply'>Show jobs &rarr;</a></div>")
