@@ -355,6 +355,18 @@ td a:hover{
   font-size:13px;color:var(--muted)}
 .callnav .callno{font-weight:600;color:var(--text);font-variant-numeric:tabular-nums}
 .callnav .faint{color:var(--faint)}
+.navarw{font-size:19px;line-height:1;color:var(--accent);padding:2px 8px;border-radius:7px;
+  transition:background .12s}
+.navarw:hover{background:var(--panel2)}
+.navarw.off{color:var(--line2);pointer-events:none}
+.toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);z-index:250;
+  display:flex;align-items:center;gap:14px;background:var(--panel2);border:1px solid var(--line2);
+  border-radius:11px;padding:12px 16px;font-size:13.5px;color:var(--text);
+  box-shadow:0 16px 44px rgba(0,0,0,.55);animation:noticein .2s ease}
+.toast.hide{opacity:0;transition:opacity .4s}
+.toast-undo{background:none;border:none;color:var(--accent);font-weight:640;font-size:13.5px;
+  cursor:pointer;padding:0}
+.toast-undo:hover{text-decoration:underline}
 
 /* ── Review cards (latest-call audit view) ── */
 .review{display:flex;flex-direction:column;gap:14px}
@@ -879,10 +891,22 @@ function _slideOut(card){
   requestAnimationFrame(function(){ card.classList.add('slideout'); });
   setTimeout(function(){ card.remove(); }, 340);
 }
-function unloveJob(el){   // remove from apply-ready
-  var f=new FormData(); f.append('id', el.dataset.i);
+function showToast(msg, id, url){
+  var old=document.querySelector('.toast'); if(old) old.remove();
+  var t=document.createElement('div'); t.className='toast';
+  t.appendChild(document.createTextNode(msg+' '));
+  var b=document.createElement('button'); b.className='toast-undo'; b.textContent='Undo';
+  t.appendChild(b); document.body.appendChild(t);
+  var to=setTimeout(function(){t.classList.add('hide');setTimeout(function(){t.remove();},400);},7000);
+  b.onclick=function(){ clearTimeout(to);
+    var f=new FormData(); f.append('id', id);
+    fetch(url,{method:'POST',body:f}).then(function(){ location.reload(); }); };
+}
+function unloveJob(el){   // remove from apply-ready (with undo)
+  var id=el.dataset.i, f=new FormData(); f.append('id', id);
   var card=el.closest('.rev-card');
-  fetch('/unlove-job',{method:'POST',body:f}).then(function(){ _slideOut(card); });
+  fetch('/unlove-job',{method:'POST',body:f}).then(function(){
+    _slideOut(card); showToast('Removed from apply-ready.', id, '/restore-job'); });
 }
 function loveJob(el){     // rescue a rejected job into apply-ready
   var f=new FormData(); f.append('id', el.dataset.i);
@@ -1328,12 +1352,13 @@ def _fetch_nav(cur: int, runs: list, base: dict) -> str:
     older = runs[idx + 1] if idx + 1 < len(runs) else None
     latest = " · latest" if idx == 0 else ""
 
-    def lnk(r, label):
-        return f"<span class=faint>{label}</span>" if r is None else go(r, label)
-    return (f"<div class=callnav>{lnk(older, '← earlier fetch')}"
+    def arw(r, ch):
+        return (f"<span class='navarw off'>{ch}</span>" if r is None
+                else f"<a class=navarw href='?{urlencode({**base, 'fetch': r, 'page': 0})}'>{ch}</a>")
+    return (f"<div class=callnav>{arw(older, '←')}"
             f"<span class=callno>Fetch #{cur}{latest}"
             f" &nbsp;·&nbsp; {go(0, 'all fetches', {'sort': ''})}</span>"
-            f"{lnk(newer, 'later fetch →')}</div>")
+            f"{arw(newer, '→')}</div>")
 
 
 def _run_nav(cur: int, runs: list, base: dict, view: str) -> str:
@@ -1360,12 +1385,13 @@ def _run_nav(cur: int, runs: list, base: dict, view: str) -> str:
     older = runs[idx + 1] if idx + 1 < len(runs) else None
     latest = " · latest" if idx == 0 else ""
 
-    def lnk(r, label):
-        return f"<span class=faint>{label}</span>" if r is None else go(r, label)
-    return (f"<div class=callnav>{lnk(older, '← earlier call')}"
+    def arw(r, ch):
+        return (f"<span class='navarw off'>{ch}</span>" if r is None
+                else f"<a class=navarw href='?{urlencode({**base, 'view': view, 'run': r, 'page': 0})}'>{ch}</a>")
+    return (f"<div class=callnav>{arw(older, '←')}"
             f"<span class=callno>Call #{cur}{latest} &middot; {what}"
             f" &nbsp;·&nbsp; {go(0, 'all calls')}</span>"
-            f"{lnk(newer, 'later call →')}</div>")
+            f"{arw(newer, '→')}</div>")
 
 
 def _filter_bar(base: dict, tier: str, ctype: str, locf: str, af: str, company: str,
@@ -1484,6 +1510,14 @@ def love_job_route(id: int = Form(...)):
     """Rescue a rejected job into apply-ready — override the AI's rejection."""
     with db.connect() as conn:
         conn.execute("UPDATE jobs SET pinned = 1, status = 'new' WHERE id = ?", [id])
+    return JSONResponse({"ok": True})
+
+
+@app.post("/restore-job")
+def restore_job_route(id: int = Form(...)):
+    """Undo an unlove — put a skipped job back into apply-ready."""
+    with db.connect() as conn:
+        conn.execute("UPDATE jobs SET status = 'new' WHERE id = ? AND status = 'skipped'", [id])
     return JSONResponse({"ok": True})
 
 
