@@ -408,10 +408,15 @@ mark.hl-gate.flash{outline:2px solid var(--red);animation:qflash 1.4s ease}
   background:var(--panel2);border:1px solid var(--line2);border-radius:11px;padding:6px;
   box-shadow:0 18px 48px rgba(0,0,0,.55);display:flex;flex-direction:column;gap:2px;
   max-height:320px;overflow-y:auto}
-.menu-list a{padding:7px 11px;border-radius:7px;font-size:12px;color:var(--text);white-space:nowrap}
+.menu-list a{padding:7px 11px;border-radius:7px;font-size:12px;color:var(--text);white-space:nowrap;
+  display:flex;align-items:center;justify-content:space-between;gap:16px}
 .menu-list a:hover{background:var(--accent);color:#0a0a0b}
 .menu-list a.sel{color:var(--accent)}
 .menu-list a.sel:hover{color:#0a0a0b}
+.mcount{font-size:11px;font-weight:600;color:var(--faint);
+  background:var(--panel);border:1px solid var(--line);border-radius:20px;
+  padding:1px 7px;min-width:22px;text-align:center;font-variant-numeric:tabular-nums}
+.menu-list a:hover .mcount{color:#0a0a0b;background:rgba(0,0,0,.14);border-color:transparent}
 .hmenu{margin:0}
 .hmenu>summary{background:none;border:none;padding:0 0 12px;gap:5px;color:var(--muted);
   font-size:11px;text-transform:uppercase;letter-spacing:.07em;font-weight:650}
@@ -462,6 +467,16 @@ mark.hl-gate.flash{outline:2px solid var(--red);animation:qflash 1.4s ease}
 .fbtn{color:var(--accent);border:1px solid var(--line2);background:transparent;transition:border-color .14s}
 .fbtn:hover{border-color:var(--accent)}
 .fnode textarea{font-size:12px;line-height:1.5}
+.freplabel{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);
+  margin:4px 0 2px}
+.frep{display:flex;flex-direction:column;gap:1px}
+.freprow{display:flex;align-items:baseline;gap:8px;padding:5px 7px;border-radius:7px;
+  font-size:11.5px;color:var(--muted);border:1px solid transparent}
+.freprow:hover{background:var(--panel2);border-color:var(--line)}
+.frepno{color:var(--accent);font-weight:640;font-variant-numeric:tabular-nums;min-width:22px}
+.frepn{color:var(--text);font-weight:560;white-space:nowrap}
+.frepbreak{flex:1;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.frepauto{color:var(--green);font-weight:560;white-space:nowrap}
 .kwlist{display:flex;flex-direction:column;gap:6px;width:100%;
   max-height:270px;overflow-y:auto;padding-right:3px}
 .kwrow{display:flex;align-items:center;gap:8px;background:var(--panel2);
@@ -497,6 +512,35 @@ _TIER_LABEL = {"voice_speech": "voice", "ai_ml": "ai/ml", "swe_backend": "swe"}
 _TYPE_LABEL = {"yc_early": "YC/early", "funded_startup": "startup", "unicorn": "unicorn",
                "public_corp": "public", "staffing_proxy": "staffing", "unknown": "—"}
 _PAGE = 20
+_AUTO_SQL = ("(source LIKE 'greenhouse%' OR source LIKE 'lever%' OR source LIKE 'ashby%' "
+             "OR source LIKE 'workday%' OR url LIKE '%greenhouse.io%' OR url LIKE '%lever.co%' "
+             "OR url LIKE '%ashbyhq.com%' OR url LIKE '%myworkdayjobs.com%')")
+_CONF_SQL = "(url LIKE '%indeed.com%' OR url LIKE '%linkedin.com%' OR url LIKE '%glassdoor%')"
+
+
+def _dim_counts(conn, where: str, params: list) -> dict:
+    """Breakdown counts over the current population, per dropdown dimension, so
+    each menu can show how many jobs fall in each category without switching."""
+    def grp(col):
+        d = {}
+        for r in conn.execute(f"SELECT {col} k, COUNT(*) n FROM jobs "
+                              f"WHERE {where} GROUP BY {col}", params):
+            d[r["k"] or ""] = r["n"]
+        return d
+
+    def one(extra):
+        return conn.execute(f"SELECT COUNT(*) FROM jobs WHERE {where}{extra}",
+                            params).fetchone()[0]
+    total = one("")
+    tier = grp("tier"); tier[""] = total
+    ctype = grp("company_type"); ctype[""] = total
+    auto = one(f" AND {_AUTO_SQL}")
+    conf = one(f" AND {_CONF_SQL} AND NOT {_AUTO_SQL}")
+    af = {"": total, "auto": auto, "confirm": conf, "manual": total - auto - conf}
+    locf = {"": total, "remote": one(" AND remote = 1"),
+            "hybrid": one(" AND (lower(location) LIKE '%hybrid%' "
+                          "OR lower(description) LIKE '%hybrid%')")}
+    return {"tier": tier, "ctype": ctype, "af": af, "locf": locf}
 _US_STATES = [
     ("AL", "Alabama"), ("AK", "Alaska"), ("AZ", "Arizona"), ("AR", "Arkansas"),
     ("CA", "California"), ("CO", "Colorado"), ("CT", "Connecticut"), ("DE", "Delaware"),
@@ -771,14 +815,19 @@ def _states_present(conn) -> list:
     return [(c, n) for c, n in _US_STATES if c in present]
 
 
-def _hmenu(label: str, param: str, cur, opts, base: dict) -> str:
+def _hmenu(label: str, param: str, cur, opts, base: dict, counts: dict | None = None) -> str:
     from urllib.parse import urlencode
     sel = next((lbl for v, lbl in opts if v != "" and str(v) == str(cur)), "")
     summ = f"{label}: {sel}" if sel else label
     active = " active" if sel else ""
+
+    def cnt(v):
+        if counts is None or v not in counts:
+            return ""
+        return f"<span class=mcount>{counts[v]}</span>"
     links = "".join(
         f"<a href='?{urlencode({**base, param: v, 'page': 0})}'"
-        f"{' class=sel' if str(v) == str(cur) else ''}>{lbl}</a>" for v, lbl in opts)
+        f"{' class=sel' if str(v) == str(cur) else ''}>{lbl}{cnt(v)}</a>" for v, lbl in opts)
     return (f"<details class='menu hmenu{active}' name=hdr><summary>{summ}</summary>"
             f"<div class=menu-list>{links}</div></details>")
 
@@ -797,23 +846,24 @@ def _search_menu(label: str, param: str, cur: str, base: dict) -> str:
 
 def _table(rows, fitcol, loved: set, show_why: bool = False, base: dict | None = None,
            tier: str = "", sort: str = "", ctype: str = "", locf: str = "", af: str = "",
-           loc_states=None, company: str = "") -> str:
+           loc_states=None, company: str = "", counts: dict | None = None) -> str:
     base = base or {}
+    c = counts or {}
     fit_h = "<th>Fit</th>" if fitcol else ""
     why_h = "<th>Why</th>" if show_why else ""
     score_h = _hmenu("Score", "sort", sort,
                      [("", "High → Low"), ("score_asc", "Low → High"),
                       ("fetch", "Latest fetch")], base)
     tier_h = _hmenu("Tier", "tier", tier, [("", "All"), ("voice_speech", "Voice"),
-                    ("ai_ml", "AI/ML"), ("swe_backend", "SWE")], base)
+                    ("ai_ml", "AI/ML"), ("swe_backend", "SWE")], base, c.get("tier"))
     type_h = _hmenu("Type", "ctype", ctype, [("", "All"), ("funded_startup", "Startup"),
                     ("unicorn", "Unicorn"), ("public_corp", "Public"),
-                    ("staffing_proxy", "Staffing"), ("yc_early", "YC")], base)
+                    ("staffing_proxy", "Staffing"), ("yc_early", "YC")], base, c.get("ctype"))
     loc_h = _hmenu("Location", "locf", locf,
                    [("", "All"), ("remote", "Remote"), ("hybrid", "Hybrid")]
-                   + (loc_states or []), base)
+                   + (loc_states or []), base, c.get("locf"))
     apply_h = _hmenu("Apply", "af", af, [("", "All"), ("auto", "Auto"),
-                     ("confirm", "Confirm"), ("manual", "Manual")], base)
+                     ("confirm", "Confirm"), ("manual", "Manual")], base, c.get("af"))
     head = (f"<table><thead><tr><th></th>{fit_h}<th class=hdd>{score_h}</th>"
             f"<th class=hdd>{tier_h}</th><th class=hdd>{type_h}</th>"
             f"<th class=hdd>{_search_menu('Company', 'company', company, base)}</th>"
@@ -991,16 +1041,12 @@ def _render(tier: str, min_score: int, fresh: bool, sort: str,
             q += " AND (lower(location) LIKE '%hybrid%' OR lower(description) LIKE '%hybrid%')"
         elif locf:                                   # a US state code
             q += " AND location LIKE ?"; p.append(f"%, {locf}%")
-        _auto = ("(source LIKE 'greenhouse%' OR source LIKE 'lever%' OR source LIKE 'ashby%' "
-                 "OR source LIKE 'workday%' OR url LIKE '%greenhouse.io%' OR url LIKE '%lever.co%' "
-                 "OR url LIKE '%ashbyhq.com%' OR url LIKE '%myworkdayjobs.com%')")
-        _conf = "(url LIKE '%indeed.com%' OR url LIKE '%linkedin.com%' OR url LIKE '%glassdoor%')"
         if af == "auto":
-            q += f" AND {_auto}"
+            q += f" AND {_AUTO_SQL}"
         elif af == "confirm":
-            q += f" AND {_conf} AND NOT {_auto}"
+            q += f" AND {_CONF_SQL} AND NOT {_AUTO_SQL}"
         elif af == "manual":
-            q += f" AND NOT {_auto} AND NOT {_conf}"
+            q += f" AND NOT {_AUTO_SQL} AND NOT {_CONF_SQL}"
         if fresh:
             q += " AND fetched_at >= datetime('now','-24 hours')"
         if sort == "fit":
@@ -1013,6 +1059,7 @@ def _render(tier: str, min_score: int, fresh: bool, sort: str,
             q += " ORDER BY score DESC, fetched_at DESC"; fitcol = None
 
     q += f" LIMIT {_PAGE + 1} OFFSET {page * _PAGE}"
+    dim_counts = None
     with db.connect() as conn:
         rows = conn.execute(q, p).fetchall()
         total = conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
@@ -1020,6 +1067,11 @@ def _render(tier: str, min_score: int, fresh: bool, sort: str,
             "SELECT COUNT(*) FROM jobs WHERE fetched_at >= datetime('now','-24 hours')"
         ).fetchone()[0]
         avail_states = _states_present(conn)
+        if view == "":                       # default all-jobs table gets breakdown counts
+            pop_where, pop_params = "score >= ? AND status != 'closed'", [min_score]
+            if sort == "fetch":
+                pop_where += " AND fetch_run = ?"; pop_params.append(cur_fetch)
+            dim_counts = _dim_counts(conn, pop_where, pop_params)
     has_next = len(rows) > _PAGE
     rows = rows[:_PAGE]
     base = {"view": view, "tier": tier, "min_score": min_score,
@@ -1035,7 +1087,7 @@ def _render(tier: str, min_score: int, fresh: bool, sort: str,
         fetch_nav = _fetch_nav(cur_fetch, fetch_runs, base) if sort == "fetch" else ""
         content = (tabs + fetch_nav + "<div class=panel>"
                    + _table(rows, fitcol, loved, show_why, base, tier, sort, ctype, locf, af,
-                            avail_states, company)
+                            avail_states, company, dim_counts)
                    + _pager(page, has_next, base) + "</div>")
     return _page(
         _header(total, fresh_n)
@@ -1060,6 +1112,32 @@ def _call_nav(cur: int, runs: list, base: dict) -> str:
     return (f"<div class=callnav>{lnk(older, '← older call')}"
             f"<span class=callno>Call #{cur} &nbsp;·&nbsp; {len(runs)} total</span>"
             f"{lnk(newer, 'newer call →')}</div>")
+
+
+def _fetch_report(conn, limit: int = 6) -> str:
+    """Compact per-fetch-run breakdown for the pipeline page: how many new jobs,
+    split by tier and how many land on an auto-fillable ATS."""
+    runs = [r[0] for r in conn.execute(
+        "SELECT DISTINCT fetch_run FROM jobs WHERE fetch_run IS NOT NULL "
+        "AND status != 'closed' ORDER BY fetch_run DESC").fetchall()]
+    if not runs:
+        return ""
+    tier_labels = [("voice_speech", "voice"), ("ai_ml", "ai/ml"), ("swe_backend", "swe")]
+    lines = []
+    for fr in runs[:limit]:
+        w, pr = "fetch_run = ? AND status != 'closed'", [fr]
+        total = conn.execute(f"SELECT COUNT(*) FROM jobs WHERE {w}", pr).fetchone()[0]
+        tiers = {r[0] or "": r[1] for r in conn.execute(
+            f"SELECT tier, COUNT(*) FROM jobs WHERE {w} GROUP BY tier", pr)}
+        auto = conn.execute(f"SELECT COUNT(*) FROM jobs WHERE {w} AND {_AUTO_SQL}", pr).fetchone()[0]
+        tb = " &middot; ".join(f"{lbl} {tiers[k]}" for k, lbl in tier_labels if tiers.get(k))
+        lines.append(
+            f"<a class=freprow href='/?sort=fetch&fetch={fr}'>"
+            f"<span class=frepno>#{fr}</span>"
+            f"<span class=frepn>{total} new</span>"
+            f"<span class=frepbreak>{tb or '—'}</span>"
+            f"<span class=frepauto>{auto} auto</span></a>")
+    return f"<div class=frep>{''.join(lines)}</div>"
 
 
 def _fetch_nav(cur: int, runs: list, base: dict) -> str:
@@ -1258,6 +1336,7 @@ def _flow_page(notice: str = "") -> str:
         analyzed = conn.execute("SELECT COUNT(*) FROM jobs WHERE analysis IS NOT NULL AND status != 'closed'").fetchone()[0]
         ready = conn.execute("SELECT COUNT(*) FROM jobs WHERE (apply_ok = 1 OR pinned = 1) AND status != 'closed'").fetchone()[0]
         runs = conn.execute("SELECT COALESCE(MAX(analysis_run), 0) FROM jobs").fetchone()[0]
+        fetch_report = _fetch_report(conn)
     top = ("<div class=flowtop><a href='/' class=brand>jobhunt</a>"
            "<a class=tool-btn href='/'>&larr; jobs</a></div>")
     banner = f"<div class=result style='margin-bottom:18px'>{notice}</div>" if notice else ""
@@ -1283,10 +1362,13 @@ def _flow_page(notice: str = "") -> str:
     merge = ("<svg class=fmerge viewBox='0 0 64 240' preserveAspectRatio=none aria-hidden=true>"
              "<path d='M0,58 C36,58 30,120 64,120'/>"
              "<path d='M0,182 C36,182 30,120 64,120'/></svg>")
+    frep_block = (f"<div class=freplabel>per fetch &middot; newest first</div>{fetch_report}"
+                  if fetch_report else "")
     fetch_node = ("<div class=fnode><div class=fhead><span class=fnum>2</span> Fetch &amp; store</div>"
                   f"<div class=fbig id=pcTotal>{total}</div><div class=fdesc>jobs scored &amp; deduped</div>"
                   "<form method=post action='/run-fetch' style='width:100%'>"
                   "<button style='width:100%'>&#9654; Run fetch</button></form>"
+                  f"{frep_block}"
                   "<a class=fbtn href='/'>Show all &rarr;</a></div>")
     an_node = ("<div class=fnode><div class=fhead><span class=fnum>3</span> Analyze &middot; JD reader</div>"
                f"<div class=fbig id=pcAnalyzed>{analyzed}</div><div class=fdesc>read by Claude &middot; <span id=pcRuns>{runs}</span> call(s)</div>"
