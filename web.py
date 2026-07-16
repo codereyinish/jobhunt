@@ -493,6 +493,9 @@ mark.hl-gate.flash{outline:2px solid var(--red);animation:qflash 1.4s ease}
 .frepn{color:var(--text);font-weight:560;white-space:nowrap}
 .frepbreak{flex:1;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .frepauto{color:var(--green);font-weight:560;white-space:nowrap}
+.frepmeta{color:var(--faint);font-weight:560;white-space:nowrap}
+.fpending{font-size:12px;font-weight:560;color:var(--faint);margin:2px 0 12px}
+.fpending.on{color:var(--accent)}
 .freparrow{color:var(--accent);opacity:0;transition:opacity .12s;font-weight:600}
 .freprow:hover .freparrow{opacity:1}
 .kwlist{display:flex;flex-direction:column;gap:6px;width:100%;
@@ -534,6 +537,8 @@ _AUTO_SQL = ("(source LIKE 'greenhouse%' OR source LIKE 'lever%' OR source LIKE 
              "OR source LIKE 'workday%' OR url LIKE '%greenhouse.io%' OR url LIKE '%lever.co%' "
              "OR url LIKE '%ashbyhq.com%' OR url LIKE '%myworkdayjobs.com%')")
 _CONF_SQL = "(url LIKE '%indeed.com%' OR url LIKE '%linkedin.com%' OR url LIKE '%glassdoor%')"
+# Jobs a "Run call" will deep-read next: shortlisted (score>=60) but not yet analyzed.
+_PENDING_SQL = "score >= 60 AND afit IS NULL AND status != 'closed'"
 
 _SCORE_TIP = ("<b>Score</b> — a fast keyword match on the job <b>title</b> only. Built from your "
               "tier ladder (<span class=k>voice/speech &gt; AI/ML &gt; SWE</span>) plus title "
@@ -545,6 +550,9 @@ _FIT_TIP = ("<b>Fit</b> — Claude reads the <b>full description against your re
             "(<span class=k>0–100</span>), weighing required years, degree, sponsorship, and how "
             "competitive the role is. This is the number to prioritize by: high Fit = actually worth "
             "applying; low Fit = a stretch even if the Score looks good.")
+_MATCH_TIP = ("<b>Match</b> — how well a job matches the <b>preference sentence</b> you typed in the "
+              "'rank by preference' box (<span class=k>0–100</span>) — about your stated interests, "
+              "not your odds of getting in. For odds, use <b>Fit</b> on the analyzed cards.")
 
 
 def _tip(text: str) -> str:
@@ -909,7 +917,7 @@ def _table(rows, fitcol, loved: set, show_why: bool = False, base: dict | None =
            loc_states=None, company: str = "", counts: dict | None = None) -> str:
     base = base or {}
     c = counts or {}
-    fit_h = f"<th>Fit {_tip(_FIT_TIP)}</th>" if fitcol else ""
+    fit_h = f"<th>Match {_tip(_MATCH_TIP)}</th>" if fitcol else ""
     why_h = "<th>Why</th>" if show_why else ""
     score_h = _hmenu("Score", "sort", sort,
                      [("", "High → Low"), ("score_asc", "Low → High"),
@@ -1151,7 +1159,7 @@ def _fetch_report(conn, limit: int = 6) -> str:
             f"<span class=frepno>#{fr}</span>"
             f"<span class=frepn>{total} new</span>"
             f"<span class=frepbreak>{tb or '—'}</span>"
-            f"<span class=frepauto>{auto} auto</span>"
+            f"<span class=frepmeta>{auto} auto</span>"
             f"<span class=freparrow>&rarr;</span></a>")
     return f"<div class=frep>{''.join(lines)}</div>"
 
@@ -1439,6 +1447,7 @@ def _flow_page(notice: str = "") -> str:
         runs = conn.execute("SELECT COALESCE(MAX(analysis_run), 0) FROM jobs").fetchone()[0]
         fetch_report = _fetch_report(conn)
         call_report = _call_report(conn)
+        pending = conn.execute(f"SELECT COUNT(*) FROM jobs WHERE {_PENDING_SQL}").fetchone()[0]
     top = ("<div class=flowtop><a href='/' class=brand>jobhunt</a>"
            "<a class=tool-btn href='/'>&larr; jobs</a></div>")
     banner = f"<div class=result style='margin-bottom:18px'>{notice}</div>" if notice else ""
@@ -1474,8 +1483,12 @@ def _flow_page(notice: str = "") -> str:
                   "<a class=fbtn href='/'>Show all &rarr;</a></div>")
     crep_block = (f"<div class=freplabel>per call &middot; newest first</div>{call_report}"
                   if call_report else "")
+    pend_cls = "fpending on" if pending else "fpending"
+    pend_txt = ("&#9889; <span id=pcPending>%d</span> jobs waiting &mdash; worth a call" % pending
+                if pending else "&#10003; <span id=pcPending>0</span> &mdash; shortlist all screened")
     an_node = ("<div class=fnode><div class=fhead><span class=fnum>3</span> Analyze &middot; JD reader</div>"
                f"<div class=fbig id=pcAnalyzed>{analyzed}</div><div class=fdesc>read by Claude &middot; <span id=pcRuns>{runs}</span> call(s)</div>"
+               f"<div class='{pend_cls}'>{pend_txt}</div>"
                "<form method=post action='/run-analyze' style='width:100%'>"
                "<button style='width:100%'>&#9654; Run call now</button></form>"
                f"{crep_block}</div>")
@@ -1487,7 +1500,7 @@ def _flow_page(notice: str = "") -> str:
             + "</div></div>")
     poll = ("<script>setInterval(function(){fetch('/counts').then(function(r){return r.json();})"
             ".then(function(d){[['pcTotal',d.total],['pcAnalyzed',d.analyzed],['pcReady',d.ready],"
-            "['pcRuns',d.runs]].forEach(function(p){var e=document.getElementById(p[0]);"
+            "['pcRuns',d.runs],['pcPending',d.pending]].forEach(function(p){var e=document.getElementById(p[0]);"
             "if(e&&e.textContent!=String(p[1]))e.textContent=p[1];});}).catch(function(){});},4000);</script>")
     return _page(top + banner + flow + poll)
 
@@ -1573,7 +1586,9 @@ def counts_route():
         analyzed = conn.execute("SELECT COUNT(*) FROM jobs WHERE analysis IS NOT NULL AND status != 'closed'").fetchone()[0]
         ready = conn.execute("SELECT COUNT(*) FROM jobs WHERE (apply_ok = 1 OR pinned = 1) AND status != 'closed'").fetchone()[0]
         runs = conn.execute("SELECT COALESCE(MAX(analysis_run), 0) FROM jobs").fetchone()[0]
-    return JSONResponse({"total": total, "analyzed": analyzed, "ready": ready, "runs": runs})
+        pending = conn.execute(f"SELECT COUNT(*) FROM jobs WHERE {_PENDING_SQL}").fetchone()[0]
+    return JSONResponse({"total": total, "analyzed": analyzed, "ready": ready,
+                         "runs": runs, "pending": pending})
 
 
 @app.get("/flow", response_class=HTMLResponse)
