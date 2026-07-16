@@ -348,25 +348,35 @@ td a:hover{
 .callnav .faint{color:var(--faint)}
 
 /* ── Review cards (latest-call audit view) ── */
-.review{display:flex;flex-direction:column;gap:13px}
-.rev-card{background:var(--panel2);border:1px solid var(--line);border-radius:12px;
-  padding:16px 18px;box-shadow:0 2px 6px rgba(0,0,0,.2)}
-.rev-head{display:flex;align-items:flex-start;gap:14px}
-.rev-fit{font-variant-numeric:tabular-nums;font-weight:700;font-size:17px;
-  color:var(--accent);min-width:32px;letter-spacing:-.02em}
+.review{display:flex;flex-direction:column;gap:14px}
+.rev-card{background:var(--panel2);border:1px solid var(--line);border-radius:13px;
+  padding:20px 24px;box-shadow:0 2px 6px rgba(0,0,0,.2)}
+.rev-head{display:flex;align-items:flex-start;gap:16px}
+.rev-fit{font-variant-numeric:tabular-nums;font-weight:700;font-size:19px;
+  color:var(--accent);min-width:34px;letter-spacing:-.02em}
 .rev-headmain{flex:1;min-width:0}
-.rev-role{font-weight:600;font-size:15px;letter-spacing:-.012em;color:var(--text);
+.rev-role{font-weight:600;font-size:15.5px;letter-spacing:-.012em;color:var(--text);
   display:inline-block;transition:color .12s}
 .rev-role:hover{color:var(--accent)}
-.rev-sub{color:var(--muted);font-size:12.5px;margin-top:3px}
+.rev-sub{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12.5px;margin-top:4px}
+.cname{color:var(--muted);font-weight:560}
+.cname.loved{color:var(--red)}
+.rev-meta{color:var(--faint)}
+.rev-sub .love{opacity:.5;margin-left:2px;font-size:12.5px}
+.rev-sub .love:hover,.rev-sub .love.on{opacity:1}
+.jheart{cursor:pointer;font-size:19px;line-height:1;user-select:none;flex-shrink:0;
+  transition:color .12s,transform .1s;padding:2px}
+.jheart.on{color:var(--red)}
+.jheart:not(.on){color:var(--faint)}
+.jheart:not(.on):hover{color:var(--red)}
+.jheart.on:hover{color:var(--faint)}
+.jheart:active{transform:scale(1.3)}
 .rev-badge{font-size:10.5px;font-weight:600;padding:3px 10px;border-radius:999px;
   white-space:nowrap;text-transform:uppercase;letter-spacing:.04em}
 .rev-badge.pass{color:var(--green);background:rgba(52,211,153,.1);border:1px solid rgba(52,211,153,.3)}
 .rev-badge.fail{color:var(--red);background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.3)}
-.rev-reason{margin-top:11px;font-size:13px;line-height:1.5}
-.rev-reason.pass{color:var(--muted)}
-.rev-reason.fail{color:var(--red)}
-.rev-dq{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}
+.rev-reason{margin-top:13px;font-size:13.5px;line-height:1.55;color:var(--text)}
+.rev-dq{display:flex;flex-wrap:wrap;gap:6px;margin-top:11px}
 .dqchip{font-size:12px;font-weight:560;color:var(--red);background:rgba(248,113,113,.09);
   border:1px solid rgba(248,113,113,.28);border-radius:6px;padding:4px 10px}
 .dqchip[onclick]{cursor:pointer}
@@ -433,6 +443,8 @@ mark.hl-gate.flash{outline:2px solid var(--red);animation:qflash 1.4s ease}
 .filterbar2{display:flex;gap:18px;flex-wrap:wrap;align-items:center;margin:0 0 18px;
   padding:13px 18px;background:var(--panel);border:1px solid var(--line);border-radius:12px}
 .filterbar2 .hmenu>summary{padding:0}
+.fbsort{padding-right:16px;border-right:1px solid var(--line);display:inline-flex}
+.fbsort .hmenu>summary{color:var(--accent)}
 .tip{position:relative;display:inline-flex;align-items:center;vertical-align:middle}
 .tipmark{margin-left:5px;width:14px;height:14px;border-radius:50%;border:1px solid var(--line2);
   color:var(--faint);font-size:9.5px;font-weight:700;font-style:normal;cursor:help;
@@ -811,19 +823,25 @@ function markApplied(el){
   var f=new FormData(); f.append('id', el.dataset.i);
   fetch('/applied',{method:'POST',body:f}).then(function(){
     var card=el.closest('.rev-card');
-    var b=card.querySelector('.rev-badge');
-    if(b){ b.textContent='applied'; b.className='rev-badge applied'; }
+    var h=card.querySelector('.jheart');
+    if(h){ h.outerHTML='<span class="rev-badge applied">applied</span>'; }
     card.classList.add('applied');
   });
 }
-function dismissJob(el){
+function _slideOut(card){
+  card.style.maxHeight=card.offsetHeight+'px';
+  requestAnimationFrame(function(){ card.classList.add('slideout'); });
+  setTimeout(function(){ card.remove(); }, 340);
+}
+function unloveJob(el){   // remove from apply-ready
   var f=new FormData(); f.append('id', el.dataset.i);
   var card=el.closest('.rev-card');
-  card.style.maxHeight=card.offsetHeight+'px';
-  fetch('/dismiss',{method:'POST',body:f}).then(function(){
-    requestAnimationFrame(function(){ card.classList.add('slideout'); });
-    setTimeout(function(){ card.remove(); }, 340);
-  });
+  fetch('/unlove-job',{method:'POST',body:f}).then(function(){ _slideOut(card); });
+}
+function loveJob(el){     // rescue a rejected job into apply-ready
+  var f=new FormData(); f.append('id', el.dataset.i);
+  var card=el.closest('.rev-card');
+  fetch('/love-job',{method:'POST',body:f}).then(function(){ _slideOut(card); });
 }
 </script>"""
 
@@ -997,51 +1015,54 @@ def _table(rows, fitcol, loved: set, show_why: bool = False, base: dict | None =
     return head + "".join(body) + "</tbody></table>"
 
 
-def _review_cards(rows) -> str:
+def _review_cards(rows, loved: set, view: str) -> str:
     if not rows:
-        return ("<div class=panel><div class=empty>Nothing analyzed yet — run "
-                "<code>jobhunt analyze</code>.</div></div>")
-    from .highlight import highlight_html
+        msg = ("No apply-ready jobs in this call." if view == "apply"
+               else "Nothing filtered out in this call.")
+        return (f"<div class=panel><div class=empty>{msg} Run a call from the "
+                "<a href='/flow'>pipeline</a> to screen more.</div></div>")
     cards = []
     for r in rows:
         try:
             a = json.loads(r["analysis"]) or {}
         except Exception:
             a = {}
-        rejected = not (r["apply_ok"] or r["pinned"])
         applied = r["status"] == "applied"
-        reason_cls = "fail" if rejected else "pass"
-        if applied:
-            badge = "<span class='rev-badge applied'>applied</span>"
-        else:
-            badge = (f"<span class='rev-badge {reason_cls}'>"
-                     f"{'rejected' if rejected else 'apply-ready'}</span>")
-        dq = a.get("disqualifiers") or []
-        chips, marks = [], []
-        for i, d in enumerate(dq):
-            label, quote = (d.get("label", ""), d.get("quote", "")) if isinstance(d, dict) else (str(d), "")
-            if quote:
-                qid = f"q-{r['id']}-{i}"
-                marks.append((qid, quote))
-                chips.append(f"<span class=dqchip data-t='{qid}' onclick='jumpq(this)'>"
-                             f"{_e(label)} &#9660;</span>")
-            else:
-                chips.append(f"<span class=dqchip>{_e(label)}</span>")
-        dq_html = f"<div class=rev-dq>{''.join(chips)}</div>" if chips else ""
-        desc = (_highlight_quotes(r["description"] or "", marks) if marks
-                else highlight_html(r["description"] or ""))
+        company = r["company"] or ""
         loc = "Remote" if r["remote"] else (r["location"] or "—")
         afit = r["afit"] if r["afit"] is not None else "—"
+
+        # short disqualifier labels only — full JD is one click away on the posting
+        chips = "".join(
+            f"<span class=dqchip>{_e(d.get('label','') if isinstance(d, dict) else str(d))}</span>"
+            for d in (a.get("disqualifiers") or [])
+            if (d.get("label") if isinstance(d, dict) else d))
+        dq_html = f"<div class=rev-dq>{chips}</div>" if chips else ""
+
+        # love the COMPANY (adds to loved companies)
+        con = " on" if company in loved else ""
+        comp_love = (f"<span class='love{con}' data-c=\"{_e(company)}\" onclick='love(this)' "
+                     f"title='love this company'>&#9829;</span>")
+
+        # top-right control = apply-ready membership (loved by default)
+        if applied:
+            ctl = "<span class='rev-badge applied'>applied</span>"
+        elif view == "rejected":
+            ctl = (f"<span class='jheart' data-i='{r['id']}' onclick='loveJob(this)' "
+                   f"title='rescue → add to apply-ready'>&#9825;</span>")
+        else:
+            ctl = (f"<span class='jheart on' data-i='{r['id']}' onclick='unloveJob(this)' "
+                   f"title='unlove → remove from apply-ready'>&#9829;</span>")
+
         actions = ""
-        if not rejected:
+        if view == "apply" and not applied:
             actions = (
                 f"<div class=rev-actions>"
                 f"<button class='rbtn fill' data-i='{r['id']}' onclick='applyfill(this)'>"
                 f"Fill application &#8599;</button>"
                 f"<button class='rbtn done' data-i='{r['id']}' onclick='markApplied(this)'>"
-                f"Mark applied</button>"
-                f"<button class='rbtn del' data-i='{r['id']}' onclick='dismissJob(this)'>"
-                f"Delete</button></div>")
+                f"Mark applied</button></div>")
+
         card_cls = "rev-card applied" if applied else "rev-card"
         cards.append(
             f"<div class='{card_cls}'><div class=rev-head>"
@@ -1049,11 +1070,13 @@ def _review_cards(rows) -> str:
             "<div class=rev-headmain>"
             f"<a class=rev-role href='{_e(r['url'] or '#')}' target=_blank rel=noopener>"
             f"{_e(r['title'])} &#8599;</a>"
-            f"<div class=rev-sub>{_e(r['company'])} &middot; "
-            f"{_TYPE_LABEL.get(r['company_type'], '—')} &middot; {_e(loc)}</div></div>"
-            f"{badge}</div>"
-            f"<div class='rev-reason {reason_cls}'>{_e(a.get('reason', ''))}</div>"
-            f"{dq_html}<div class=rev-desc>{desc}</div>{actions}</div>"
+            f"<div class=rev-sub><span class=cname{' loved' if company in loved else ''}>"
+            f"{_e(company)}</span>{comp_love}"
+            f"<span class=rev-meta>&middot; {_TYPE_LABEL.get(r['company_type'], '—')} "
+            f"&middot; {_e(loc)}</span></div></div>"
+            f"{ctl}</div>"
+            f"<div class=rev-reason>{_e(a.get('reason', ''))}</div>"
+            f"{dq_html}{actions}</div>"
         )
     return "<div class='panel review'>" + "".join(cards) + "</div>"
 
@@ -1089,12 +1112,18 @@ def _render(tier: str, min_score: int, fresh: bool, sort: str,
                 "AND status != 'closed' ORDER BY analysis_run DESC").fetchall()]
         cur_run = run if run in call_runs else 0
         if view == "apply":
-            base_where, base_p = "(apply_ok = 1 OR pinned = 1) AND status != 'closed'", []
+            # 'skipped' = you unloved it out of apply-ready
+            base_where = "(apply_ok = 1 OR pinned = 1) AND status NOT IN ('closed','skipped')"
         else:
-            base_where, base_p = "analysis IS NOT NULL AND apply_ok = 0 AND status != 'closed'", []
+            # pinned/loved-back jobs leave the rejected list
+            base_where = ("analysis IS NOT NULL AND apply_ok = 0 AND pinned = 0 "
+                          "AND status NOT IN ('closed','skipped')")
+        base_p = []
         if cur_run:
             base_where += " AND analysis_run = ?"; base_p.append(cur_run)
-        order, fitcol = " ORDER BY afit IS NULL, afit DESC", "afit"
+        order = (" ORDER BY afit IS NULL, afit ASC" if sort == "afit_asc"
+                 else " ORDER BY afit IS NULL, afit DESC")
+        fitcol = "afit"
     else:
         # All jobs: always-on fetch bar. A batch is selected explicitly (fetch>0)
         # or via "Latest fetch" (sort=fetch); cur_fetch=0 means "all fetches".
@@ -1143,8 +1172,9 @@ def _render(tier: str, min_score: int, fresh: bool, sort: str,
     tabs = _tabs(view, base)
     if view in ("apply", "rejected"):
         content = (tabs + _run_nav(cur_run, call_runs, base, view)
-                   + _filter_bar(base, tier, ctype, locf, af, company, dim_counts, avail_states)
-                   + _review_cards(rows) + _pager(page, has_next, base))
+                   + _filter_bar(base, tier, ctype, locf, af, company, dim_counts,
+                                 avail_states, sort)
+                   + _review_cards(rows, loved, view) + _pager(page, has_next, base))
     else:
         content = (tabs + _fetch_nav(cur_fetch, fetch_runs, base) + "<div class=panel>"
                    + _table(rows, fitcol, loved, False, base, tier, sort, ctype, locf, af,
@@ -1272,10 +1302,12 @@ def _run_nav(cur: int, runs: list, base: dict, view: str) -> str:
 
 
 def _filter_bar(base: dict, tier: str, ctype: str, locf: str, af: str, company: str,
-                counts: dict | None, states) -> str:
-    """Standalone tier/type/location/apply/company filters — for the card views
-    (Apply-ready / Rejected) that have no table header to hang column menus on."""
+                counts: dict | None, states, sort: str = "") -> str:
+    """Standalone sort + tier/type/location/apply/company filters — for the card
+    views (Apply-ready / Rejected) that have no table header to hang menus on."""
     c = counts or {}
+    fit_h = _hmenu("Fit", "sort", sort,
+                   [("", "High → Low"), ("afit_asc", "Low → High")], base)
     tier_h = _hmenu("Tier", "tier", tier, [("", "All"), ("voice_speech", "Voice"),
                     ("ai_ml", "AI/ML"), ("swe_backend", "SWE")], base, c.get("tier"))
     type_h = _hmenu("Type", "ctype", ctype, [("", "All"), ("funded_startup", "Startup"),
@@ -1287,7 +1319,8 @@ def _filter_bar(base: dict, tier: str, ctype: str, locf: str, af: str, company: 
     apply_h = _hmenu("Apply", "af", af, [("", "All"), ("auto", "Auto"),
                      ("confirm", "Confirm"), ("manual", "Manual")], base, c.get("af"))
     comp_h = _search_menu("Company", "company", company, base)
-    return (f"<div class=filterbar2>{tier_h}{type_h}{loc_h}{apply_h}{comp_h}</div>")
+    return (f"<div class=filterbar2><span class=fbsort>{fit_h}</span>"
+            f"{tier_h}{type_h}{loc_h}{apply_h}{comp_h}</div>")
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -1368,6 +1401,22 @@ def applied_route(id: int = Form(...)):
 def dismiss_route(id: int = Form(...)):
     with db.connect() as conn:
         conn.execute("UPDATE jobs SET status = 'closed' WHERE id = ?", [id])
+    return JSONResponse({"ok": True})
+
+
+@app.post("/unlove-job")
+def unlove_job_route(id: int = Form(...)):
+    """Unlove from apply-ready — override the AI when it wrongly kept a job."""
+    with db.connect() as conn:
+        conn.execute("UPDATE jobs SET status = 'skipped' WHERE id = ? AND status != 'applied'", [id])
+    return JSONResponse({"ok": True})
+
+
+@app.post("/love-job")
+def love_job_route(id: int = Form(...)):
+    """Rescue a rejected job into apply-ready — override the AI's rejection."""
+    with db.connect() as conn:
+        conn.execute("UPDATE jobs SET pinned = 1, status = 'new' WHERE id = ?", [id])
     return JSONResponse({"ok": True})
 
 
