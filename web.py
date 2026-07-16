@@ -256,6 +256,15 @@ tr:hover .love{opacity:.4}
 .love.on{opacity:1;color:var(--red)}
 .role{color:var(--text);max-width:300px;font-weight:500}
 .loc{color:var(--muted);font-size:12.5px;max-width:165px}
+.loc .pin{color:var(--faint);margin-right:4px;vertical-align:-1px}
+.posted{color:var(--faint);font-size:12px;white-space:nowrap;font-variant-numeric:tabular-nums}
+.livewrap{display:flex;align-items:center;gap:9px;margin:0 0 16px;padding:11px 15px;
+  background:var(--panel2);border:1px solid var(--line2);border-radius:10px}
+.livewrap:focus-within{border-color:var(--accent)}
+.lsico{color:var(--faint);flex-shrink:0}
+.livesearch{flex:1;background:none;border:none;outline:none;color:var(--text);
+  font-size:14px;font-family:inherit}
+.livesearch::placeholder{color:var(--faint)}
 td a{
   white-space:nowrap;font-size:12px;color:var(--muted);
   padding:4px 9px;border-radius:6px;border:1px solid var(--line2);
@@ -562,23 +571,43 @@ _CONF_SQL = "(url LIKE '%indeed.com%' OR url LIKE '%linkedin.com%' OR url LIKE '
 # Jobs a "Run call" will deep-read next: shortlisted (score>=60) but not yet analyzed.
 _PENDING_SQL = "score >= 60 AND afit IS NULL AND status != 'closed'"
 
-_SCORE_TIP = ("<b>Score</b> — a fast keyword match on the job <b>title</b> only. Built from your "
-              "tier ladder (<span class=k>voice/speech &gt; AI/ML &gt; SWE</span>) plus title "
-              "keyword hits and a big boost for <span class=k>junior / entry / new-grad</span> "
-              "titles. It never reads the description, so it just surfaces relevant-looking roles "
-              "fast. Use it to scan breadth — not as proof you'll get in. Trust <b>Fit</b> for that.")
-_FIT_TIP = ("<b>Fit</b> — Claude reads the <b>full description against your resume &amp; profile</b> "
-            "and estimates your realistic odds of landing an interview/offer if you apply "
-            "(<span class=k>0–100</span>), weighing required years, degree, sponsorship, and how "
-            "competitive the role is. This is the number to prioritize by: high Fit = actually worth "
-            "applying; low Fit = a stretch even if the Score looks good.")
-_MATCH_TIP = ("<b>Match</b> — how well a job matches the <b>preference sentence</b> you typed in the "
-              "'rank by preference' box (<span class=k>0–100</span>) — about your stated interests, "
-              "not your odds of getting in. For odds, use <b>Fit</b> on the analyzed cards.")
+_SCORE_TIP = ("<b>Score</b> — how well the job <b>title</b> matches your target roles "
+              "(<span class=k>voice/speech &gt; AI/ML &gt; SWE</span>), plus a boost for "
+              "junior/new-grad titles. A quick filter — it doesn't read the description.")
+_FIT_TIP = ("<b>Fit</b> — Claude reads the <b>whole job against your resume</b> and rates your "
+            "realistic chance of an interview (<span class=k>0–100</span>). The one to trust.")
+_MATCH_TIP = ("<b>Match</b> — how well a job fits the <b>preference sentence</b> you typed "
+              "(<span class=k>0–100</span>). About your interests, not your odds.")
 
 
 def _tip(text: str) -> str:
     return f"<span class=tip><span class=tipmark>i</span><span class=tipbox>{text}</span></span>"
+
+
+_PIN = ("<svg class=pin viewBox='0 0 24 24' width=11 height=11 aria-hidden=true>"
+        "<path fill=currentColor d='M12 2a7 7 0 0 0-7 7c0 5 7 13 7 13s7-8 7-13a7 7 0 0 0-7-7zm0 "
+        "9.5a2.5 2.5 0 1 1 0-5 2.5 2.5 0 0 1 0 5z'/></svg>")
+
+
+def _posted_ago(posted: str) -> str:
+    """Relative posted age: 'today', '3d', '2mo'."""
+    if not posted:
+        return "—"
+    from datetime import datetime, timezone
+    try:
+        d = datetime.strptime(posted.strip()[:10], "%Y-%m-%d").date()
+    except ValueError:
+        return "—"
+    days = (datetime.now(timezone.utc).date() - d).days
+    if days <= 0:
+        return "today"
+    if days == 1:
+        return "1d"
+    if days < 30:
+        return f"{days}d"
+    if days < 365:
+        return f"{days // 30}mo"
+    return f"{days // 365}y"
 
 
 def _apply_filters(q: str, p: list, tier, ctype, company, locf, af) -> tuple[str, list]:
@@ -805,10 +834,27 @@ function jumpq(el){
   if(t){ t.scrollIntoView({block:'center',behavior:'smooth'});
     t.classList.add('flash'); setTimeout(function(){t.classList.remove('flash');},1400); }
 }
-document.addEventListener('click',function(e){
-  document.querySelectorAll('details.menu[open]').forEach(function(d){
-    if(!d.contains(e.target)) d.removeAttribute('open');   // close dropdowns on outside click
+document.querySelectorAll('details.menu').forEach(function(d){
+  var t;
+  d.addEventListener('mouseenter',function(){        // hover opens
+    clearTimeout(t);
+    document.querySelectorAll('details.menu[open]').forEach(function(o){
+      if(o!==d && !o.dataset.pin) o.removeAttribute('open'); });
+    d.setAttribute('open','');
   });
+  d.addEventListener('mouseleave',function(){        // hover-off closes (unless pinned)
+    if(!d.dataset.pin){ t=setTimeout(function(){ d.removeAttribute('open'); },150); }
+  });
+  var s=d.querySelector('summary');
+  if(s) s.addEventListener('click',function(e){      // click pins it open; click again closes
+    e.preventDefault();
+    if(d.dataset.pin){ delete d.dataset.pin; d.removeAttribute('open'); }
+    else { d.dataset.pin='1'; d.setAttribute('open',''); }
+  });
+});
+document.addEventListener('click',function(e){       // click elsewhere closes any dropdown
+  document.querySelectorAll('details.menu[open]').forEach(function(d){
+    if(!d.contains(e.target)){ delete d.dataset.pin; d.removeAttribute('open'); } });
 });
 (function(){var n=document.querySelector('.notice');   // auto-dismiss toast
   if(n){setTimeout(function(){n.classList.add('hide');setTimeout(function(){n.remove();},400);},4500);}})();
@@ -842,6 +888,14 @@ function loveJob(el){     // rescue a rejected job into apply-ready
   var f=new FormData(); f.append('id', el.dataset.i);
   var card=el.closest('.rev-card');
   fetch('/love-job',{method:'POST',body:f}).then(function(){ _slideOut(card); });
+}
+function liveFilter(el){   // instant filter of the loaded rows
+  var q=el.value.toLowerCase(), n=0, panel=el.closest('.panel');
+  panel.querySelectorAll('tbody tr').forEach(function(tr){
+    if(tr.querySelector('.emptyrow')) return;
+    var hit=tr.textContent.toLowerCase().indexOf(q)>=0;
+    tr.style.display=hit?'':'none'; if(hit) n++;
+  });
 }
 </script>"""
 
@@ -960,7 +1014,11 @@ def _table(rows, fitcol, loved: set, show_why: bool = False, base: dict | None =
     why_h = "<th>Why</th>" if show_why else ""
     score_h = _hmenu("Score", "sort", sort,
                      [("", "High → Low"), ("score_asc", "Low → High"),
-                      ("fetch", "Latest fetch")], base, plain_for=("fetch",))
+                      ("recent", "Newest posted"), ("fetch", "Latest fetch")],
+                     base, plain_for=("fetch", "recent"))
+    posted_h = _hmenu("Posted", "sort", sort,
+                      [("recent", "Newest first"), ("", "By score")], base,
+                      plain_for=("", "score_asc", "fetch"))
     tier_h = _hmenu("Tier", "tier", tier, [("", "All"), ("voice_speech", "Voice"),
                     ("ai_ml", "AI/ML"), ("swe_backend", "SWE")], base, c.get("tier"))
     type_h = _hmenu("Type", "ctype", ctype, [("", "All"), ("funded_startup", "Startup"),
@@ -975,12 +1033,17 @@ def _table(rows, fitcol, loved: set, show_why: bool = False, base: dict | None =
             f"<th class=hdd>{tier_h}</th><th class=hdd>{type_h}</th>"
             f"<th class=hdd>{_search_menu('Company', 'company', company, base)}</th>"
             f"<th>Role</th><th class=hdd>{loc_h}</th>{why_h}"
+            f"<th class=hdd>{posted_h}</th>"
             f"<th class=hdd>{apply_h}</th><th></th>"
             "</tr></thead><tbody>")
+    search = ("<div class=livewrap><svg class=lsico viewBox='0 0 24 24' width=15 height=15>"
+              "<path fill=currentColor d='M15.5 14h-.79l-.28-.27a6.5 6.5 0 1 0-.7.7l.27.28v.79l5 "
+              "4.99L20.49 19l-4.99-5zm-6 0A4.5 4.5 0 1 1 14 9.5 4.5 4.5 0 0 1 9.5 14z'/></svg>"
+              "<input class=livesearch placeholder='Search these jobs by title, company, location…' "
+              "oninput='liveFilter(this)'></div>")
     if not rows:
-        return (head + "<tr><td colspan=20 class=emptyrow>No jobs match these "
-                "filters — change a column filter above, or run "
-                "<code>jobhunt source</code> / <code>analyze</code>."
+        return (search + head + "<tr><td colspan=20 class=emptyrow>No jobs match these "
+                "filters — change a column filter above, or run a fetch."
                 "</td></tr></tbody></table>")
     body = []
     for i, r in enumerate(rows, 1):
@@ -998,6 +1061,7 @@ def _table(rows, fitcol, loved: set, show_why: bool = False, base: dict | None =
                  f"<span class='love{on}' data-c=\"{_e(comp)}\" onclick='love(this)' "
                  f"title='favorite company'>&#9829;</span>")
         pn = " on" if r["pinned"] else ""
+        loc_html = _e(loc) if loc == "Remote" else f"{_PIN}{_e(loc)}"
         body.append(
             f"<tr><td class=num>{i}</td>{fit_c}"
             f"<td class=score>{r['score']}</td>"
@@ -1005,14 +1069,15 @@ def _table(rows, fitcol, loved: set, show_why: bool = False, base: dict | None =
             f"<td class='ctype{ct_cls}'>{_TYPE_LABEL.get(ctype, '—')}</td>"
             f"<td class=company>{heart}</td>"
             f"<td class=role>{_e(r['title'])}</td>"
-            f"<td class=loc>{_e(loc)}</td>{why_c}"
+            f"<td class=loc>{loc_html}</td>{why_c}"
+            f"<td class=posted>{_posted_ago(r['posted_at'])}</td>"
             f"<td><span class='pill {path}'>{path}</span></td>"
             f"<td class=actions>"
             f"<span class='pin{pn}' data-i='{r['id']}' onclick='pin(this)' "
             f"title='add to apply list'>&#9733;</span>"
             f"<a href='{_e(curl)}' target=_blank rel=noopener>open ↗</a></td></tr>"
         )
-    return head + "".join(body) + "</tbody></table>"
+    return search + head + "".join(body) + "</tbody></table>"
 
 
 def _review_cards(rows, loved: set, view: str) -> str:
@@ -1145,6 +1210,8 @@ def _render(tier: str, min_score: int, fresh: bool, sort: str,
             order, fitcol = " ORDER BY fit IS NULL, fit DESC, score DESC", "fit"
         elif sort == "score_asc":
             order, fitcol = " ORDER BY score ASC, fetched_at DESC", None
+        elif sort == "recent":
+            order, fitcol = " ORDER BY posted_at DESC, score DESC", None
         else:                                    # "", "fetch" → score high→low
             order, fitcol = " ORDER BY score DESC, fetched_at DESC", None
 
@@ -1264,8 +1331,8 @@ def _fetch_nav(cur: int, runs: list, base: dict) -> str:
     def lnk(r, label):
         return f"<span class=faint>{label}</span>" if r is None else go(r, label)
     return (f"<div class=callnav>{lnk(older, '← earlier fetch')}"
-            f"<span class=callno>Fetch #{cur}{latest} &nbsp;·&nbsp; {len(runs)} total"
-            f" &nbsp; {go(0, 'all fetches', {'sort': ''})}</span>"
+            f"<span class=callno>Fetch #{cur}{latest}"
+            f" &nbsp;·&nbsp; {go(0, 'all fetches', {'sort': ''})}</span>"
             f"{lnk(newer, 'later fetch →')}</div>")
 
 
@@ -1296,8 +1363,8 @@ def _run_nav(cur: int, runs: list, base: dict, view: str) -> str:
     def lnk(r, label):
         return f"<span class=faint>{label}</span>" if r is None else go(r, label)
     return (f"<div class=callnav>{lnk(older, '← earlier call')}"
-            f"<span class=callno>Call #{cur}{latest} &middot; {what} &nbsp;·&nbsp; {len(runs)} total"
-            f" &nbsp; {go(0, 'all calls')}</span>"
+            f"<span class=callno>Call #{cur}{latest} &middot; {what}"
+            f" &nbsp;·&nbsp; {go(0, 'all calls')}</span>"
             f"{lnk(newer, 'later call →')}</div>")
 
 
