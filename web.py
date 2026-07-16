@@ -184,6 +184,12 @@ button:active{transform:translateY(1px);box-shadow:none}
   padding:16px 20px;background:var(--panel2);margin-top:14px;
   box-shadow:0 2px 6px rgba(0,0,0,.2);
 }
+.notice{position:fixed;top:18px;left:50%;transform:translateX(-50%);z-index:200;
+  max-width:560px;background:var(--panel2);border:1px solid var(--accent);border-radius:11px;
+  padding:13px 18px;font-size:13.5px;color:var(--text);box-shadow:0 16px 44px rgba(0,0,0,.5);
+  animation:noticein .2s ease}
+@keyframes noticein{from{opacity:0;transform:translate(-50%,-8px)}to{opacity:1;transform:translate(-50%,0)}}
+.notice.hide{opacity:0;transition:opacity .4s}
 .result .t{font-size:16px;font-weight:650;margin:0 0 8px;letter-spacing:-.022em}
 .kv{color:var(--muted);font-size:13px;margin:4px 0;line-height:1.5}
 .kv b{color:var(--text);font-weight:600}
@@ -685,7 +691,7 @@ def _context_modal() -> str:
         f"<textarea name=resume rows=9 style='width:100%' "
         f"placeholder='…or paste it as plain text'>{_e(resume)}</textarea>"
         "<div class=row><button type=submit>Save resume</button>"
-        "<span class=hint>upload a .pdf/.txt or paste · then <code>analyze --force</code></span></div>"
+        "<span class=hint>upload a .pdf/.txt or paste — new jobs use it automatically</span></div>"
         "</form>"
         "<div class=modal-h style='margin-top:22px'>What Claude sees — profile</div>"
         f"<pre class=ctxpre>{_e(_profile_block())}</pre>"
@@ -792,6 +798,8 @@ document.addEventListener('click',function(e){
     if(!d.contains(e.target)) d.removeAttribute('open');   // close dropdowns on outside click
   });
 });
+(function(){var n=document.querySelector('.notice');   // auto-dismiss toast
+  if(n){setTimeout(function(){n.classList.add('hide');setTimeout(function(){n.remove();},400);},4500);}})();
 function applyfill(el){
   var old=el.textContent; el.disabled=true; el.textContent='Opening browser…';
   fetch('/apply/'+el.dataset.i,{method:'POST'}).then(function(r){return r.json();})
@@ -1131,7 +1139,7 @@ def _render(tier: str, min_score: int, fresh: bool, sort: str,
             "fresh": 1 if fresh else 0, "sort": sort, "min_fit": min_fit,
             "ctype": ctype, "locf": locf, "af": af, "company": company,
             "run": cur_run, "fetch": cur_fetch}
-    notice_html = f"<div class=result>{notice}</div>" if notice else ""
+    notice_html = f"<div class=notice>{notice}</div>" if notice else ""
     tabs = _tabs(view, base)
     if view in ("apply", "rejected"):
         content = (tabs + _run_nav(cur_run, call_runs, base, view)
@@ -1300,8 +1308,7 @@ async def resume_route(resume: str = Form(""), file: UploadFile = File(None)):
     else:
         save_resume(resume)
     return _render("", 40, False, "", notice=(
-        "Resume saved. Run <code>jobhunt analyze --force</code> to re-screen "
-        "every job against it."))
+        "Resume saved &#10003; — new jobs are screened against it automatically."))
 
 
 @app.post("/prompt", response_class=HTMLResponse)
@@ -1309,7 +1316,7 @@ def prompt_route(prompt: str = Form("")):
     from .core.config import save_prompt
     save_prompt(prompt)
     return _render("", 40, False, "", notice=(
-        "Prompt saved. Run <code>jobhunt analyze --force</code> to use it."))
+        "Prompt saved &#10003; — used on the next analyze call."))
 
 
 @app.post("/love")
