@@ -423,6 +423,9 @@ mark.hl-gate.flash{outline:2px solid var(--red);animation:qflash 1.4s ease}
 .hmenu>summary:hover{color:var(--text)}
 .hmenu[open]>summary{color:var(--accent)}
 .hmenu.active>summary{color:var(--accent)}
+.filterbar2{display:flex;gap:18px;flex-wrap:wrap;align-items:center;margin:0 0 18px;
+  padding:13px 18px;background:var(--panel);border:1px solid var(--line);border-radius:12px}
+.filterbar2 .hmenu>summary{padding:0}
 .srch-list{padding:8px}
 .srch{display:flex;gap:6px}
 .srch input{min-width:150px;font-size:12.5px}
@@ -520,6 +523,30 @@ _AUTO_SQL = ("(source LIKE 'greenhouse%' OR source LIKE 'lever%' OR source LIKE 
 _CONF_SQL = "(url LIKE '%indeed.com%' OR url LIKE '%linkedin.com%' OR url LIKE '%glassdoor%')"
 
 
+def _apply_filters(q: str, p: list, tier, ctype, company, locf, af) -> tuple[str, list]:
+    """Append the shared column filters (tier/type/company/location/apply) to any
+    view's query, so filtering works the same everywhere."""
+    if tier:
+        q += " AND tier = ?"; p.append(tier)
+    if ctype:
+        q += " AND company_type = ?"; p.append(ctype)
+    if company:
+        q += " AND company LIKE ?"; p.append(f"%{company}%")
+    if locf == "remote":
+        q += " AND remote = 1"
+    elif locf == "hybrid":
+        q += " AND (lower(location) LIKE '%hybrid%' OR lower(description) LIKE '%hybrid%')"
+    elif locf:                                       # a US state code
+        q += " AND location LIKE ?"; p.append(f"%, {locf}%")
+    if af == "auto":
+        q += f" AND {_AUTO_SQL}"
+    elif af == "confirm":
+        q += f" AND {_CONF_SQL} AND NOT {_AUTO_SQL}"
+    elif af == "manual":
+        q += f" AND NOT {_AUTO_SQL} AND NOT {_CONF_SQL}"
+    return q, p
+
+
 def _dim_counts(conn, where: str, params: list) -> dict:
     """Breakdown counts over the current population, per dropdown dimension, so
     each menu can show how many jobs fall in each category without switching."""
@@ -566,7 +593,7 @@ def _tabs(view: str, base: dict) -> str:
              ("rejected", "Rejected"), ("review", "Last call")]
     labels = dict(items)
     links = "".join(
-        f"<a href='?{urlencode({**base, 'view': v, 'page': 0})}'"
+        f"<a href='?{urlencode({**base, 'view': v, 'page': 0, 'fetch': 0, 'sort': ''})}'"
         f"{' class=sel' if v == view else ''}>{lbl}</a>"
         for v, lbl in items)
     return (f"<details class=menu name=hdr><summary>{labels.get(view, 'All jobs')}</summary>"
@@ -817,9 +844,12 @@ def _states_present(conn) -> list:
     return [(c, n) for c, n in _US_STATES if c in present]
 
 
-def _hmenu(label: str, param: str, cur, opts, base: dict, counts: dict | None = None) -> str:
+def _hmenu(label: str, param: str, cur, opts, base: dict, counts: dict | None = None,
+           plain_for: tuple = ()) -> str:
     from urllib.parse import urlencode
     sel = next((lbl for v, lbl in opts if v != "" and str(v) == str(cur)), "")
+    if str(cur) in (str(x) for x in plain_for):      # keep the header compact
+        sel = ""
     summ = f"{label}: {sel}" if sel else label
     active = " active" if sel else ""
 
@@ -855,7 +885,7 @@ def _table(rows, fitcol, loved: set, show_why: bool = False, base: dict | None =
     why_h = "<th>Why</th>" if show_why else ""
     score_h = _hmenu("Score", "sort", sort,
                      [("", "High → Low"), ("score_asc", "Low → High"),
-                      ("fetch", "Latest fetch")], base)
+                      ("fetch", "Latest fetch")], base, plain_for=("fetch",))
     tier_h = _hmenu("Tier", "tier", tier, [("", "All"), ("voice_speech", "Voice"),
                     ("ai_ml", "AI/ML"), ("swe_backend", "SWE")], base, c.get("tier"))
     type_h = _hmenu("Type", "ctype", ctype, [("", "All"), ("funded_startup", "Startup"),
@@ -993,75 +1023,51 @@ def _render(tier: str, min_score: int, fresh: bool, sort: str,
 
     show_why = view in ("apply", "rejected", "call")
     call_runs, cur_run = [], 0
-    fetch_runs, cur_fetch = [], 0
+    fetch_runs, cur_fetch, in_fetch = [], 0, False
     if view in ("call", "review"):
         with db.connect() as _c:
             call_runs = [r[0] for r in _c.execute(
                 "SELECT DISTINCT analysis_run FROM jobs WHERE analysis_run IS NOT NULL "
                 "AND status != 'closed' ORDER BY analysis_run DESC").fetchall()]
         cur_run = run if run in call_runs else (call_runs[0] if call_runs else 0)
-        q = "SELECT * FROM jobs WHERE analysis_run = ? AND status != 'closed'"
-        p: list = [cur_run]
-        if tier:
-            q += " AND tier = ?"; p.append(tier)
-        q += " ORDER BY afit DESC"
-        fitcol = "afit"
+        base_where, base_p = "analysis_run = ? AND status != 'closed'", [cur_run]
+        order, fitcol = " ORDER BY afit DESC", "afit"
     elif view == "apply":
-        q = "SELECT * FROM jobs WHERE (apply_ok = 1 OR pinned = 1) AND status != 'closed'"
-        p: list = []
-        if tier:
-            q += " AND tier = ?"; p.append(tier)
-        q += " ORDER BY afit IS NULL, afit DESC"
-        fitcol = "afit"
+        base_where, base_p = "(apply_ok = 1 OR pinned = 1) AND status != 'closed'", []
+        order, fitcol = " ORDER BY afit IS NULL, afit DESC", "afit"
     elif view == "rejected":
-        q = "SELECT * FROM jobs WHERE analysis IS NOT NULL AND apply_ok = 0 AND status != 'closed'"
-        p = []
-        if tier:
-            q += " AND tier = ?"; p.append(tier)
-        q += " ORDER BY afit DESC"
-        fitcol = "afit"
+        base_where = "analysis IS NOT NULL AND apply_ok = 0 AND status != 'closed'"
+        base_p = []
+        order, fitcol = " ORDER BY afit DESC", "afit"
     else:
-        if sort == "fetch":
+        # A fetch batch is selected either explicitly (fetch>0) or via the
+        # "Latest fetch" menu (sort=fetch). Once in a batch, the score sort still
+        # applies WITHIN it, so you can flip low↔high for that one fetch.
+        in_fetch = sort == "fetch" or fetch > 0
+        if in_fetch:
             with db.connect() as _c:
                 fetch_runs = [r[0] for r in _c.execute(
                     "SELECT DISTINCT fetch_run FROM jobs WHERE fetch_run IS NOT NULL "
                     "AND status != 'closed' ORDER BY fetch_run DESC").fetchall()]
             cur_fetch = fetch if fetch in fetch_runs else (fetch_runs[0] if fetch_runs else 0)
-        q = "SELECT * FROM jobs WHERE score >= ? AND status != 'closed'"
-        p = [min_score]
-        if sort == "fetch":
-            q += " AND fetch_run = ?"; p.append(cur_fetch)
-        if tier:
-            q += " AND tier = ?"; p.append(tier)
-        if ctype:
-            q += " AND company_type = ?"; p.append(ctype)
-        if company:
-            q += " AND company LIKE ?"; p.append(f"%{company}%")
-        if locf == "remote":
-            q += " AND remote = 1"
-        elif locf == "hybrid":
-            q += " AND (lower(location) LIKE '%hybrid%' OR lower(description) LIKE '%hybrid%')"
-        elif locf:                                   # a US state code
-            q += " AND location LIKE ?"; p.append(f"%, {locf}%")
-        if af == "auto":
-            q += f" AND {_AUTO_SQL}"
-        elif af == "confirm":
-            q += f" AND {_CONF_SQL} AND NOT {_AUTO_SQL}"
-        elif af == "manual":
-            q += f" AND NOT {_AUTO_SQL} AND NOT {_CONF_SQL}"
+        base_where, base_p = "score >= ? AND status != 'closed'", [min_score]
+        if in_fetch and cur_fetch:
+            base_where += " AND fetch_run = ?"; base_p.append(cur_fetch)
         if fresh:
-            q += " AND fetched_at >= datetime('now','-24 hours')"
+            base_where += " AND fetched_at >= datetime('now','-24 hours')"
         if sort == "fit":
-            q += " ORDER BY fit IS NULL, fit DESC, score DESC"; fitcol = "fit"
+            order, fitcol = " ORDER BY fit IS NULL, fit DESC, score DESC", "fit"
         elif sort == "score_asc":
-            q += " ORDER BY score ASC"; fitcol = None
-        elif sort == "fetch":
-            q += " ORDER BY score DESC, fetched_at DESC"; fitcol = None
-        else:
-            q += " ORDER BY score DESC, fetched_at DESC"; fitcol = None
+            order, fitcol = " ORDER BY score ASC, fetched_at DESC", None
+        else:                                    # "", "fetch" → score high→low
+            order, fitcol = " ORDER BY score DESC, fetched_at DESC", None
 
-    q += f" LIMIT {_PAGE + 1} OFFSET {page * _PAGE}"
-    dim_counts = None
+    # Shared column filters apply to EVERY view. Counts are computed over the
+    # view's population (before these filters) so the breakdown stays visible.
+    q = f"SELECT * FROM jobs WHERE {base_where}"
+    p = list(base_p)
+    q, p = _apply_filters(q, p, tier, ctype, company, locf, af)
+    q += order + f" LIMIT {_PAGE + 1} OFFSET {page * _PAGE}"
     with db.connect() as conn:
         rows = conn.execute(q, p).fetchall()
         total = conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
@@ -1069,24 +1075,21 @@ def _render(tier: str, min_score: int, fresh: bool, sort: str,
             "SELECT COUNT(*) FROM jobs WHERE fetched_at >= datetime('now','-24 hours')"
         ).fetchone()[0]
         avail_states = _states_present(conn)
-        if view == "":                       # default all-jobs table gets breakdown counts
-            pop_where, pop_params = "score >= ? AND status != 'closed'", [min_score]
-            if sort == "fetch":
-                pop_where += " AND fetch_run = ?"; pop_params.append(cur_fetch)
-            dim_counts = _dim_counts(conn, pop_where, pop_params)
+        dim_counts = _dim_counts(conn, base_where, list(base_p))
     has_next = len(rows) > _PAGE
     rows = rows[:_PAGE]
     base = {"view": view, "tier": tier, "min_score": min_score,
             "fresh": 1 if fresh else 0, "sort": sort, "min_fit": min_fit,
             "ctype": ctype, "locf": locf, "af": af, "company": company, "run": run,
-            "fetch": fetch}
+            "fetch": cur_fetch if in_fetch else fetch}
     notice_html = f"<div class=result>{notice}</div>" if notice else ""
     tabs = _tabs(view, base)
     if view == "review":
         content = (tabs + _call_nav(cur_run, call_runs, base)
+                   + _filter_bar(base, tier, ctype, locf, af, company, dim_counts, avail_states)
                    + _review_cards(rows) + _pager(page, has_next, base))
     else:
-        fetch_nav = _fetch_nav(cur_fetch, fetch_runs, base) if sort == "fetch" else ""
+        fetch_nav = _fetch_nav(cur_fetch, fetch_runs, base) if in_fetch else ""
         content = (tabs + fetch_nav + "<div class=panel>"
                    + _table(rows, fitcol, loved, show_why, base, tier, sort, ctype, locf, af,
                             avail_states, company, dim_counts)
@@ -1157,10 +1160,29 @@ def _fetch_nav(cur: int, runs: list, base: dict) -> str:
     def lnk(r, label):
         if r is None:
             return f"<span class=faint>{label}</span>"
-        return f"<a href='?{urlencode({**base, 'sort': 'fetch', 'fetch': r, 'page': 0})}'>{label}</a>"
+        return f"<a href='?{urlencode({**base, 'fetch': r, 'page': 0})}'>{label}</a>"
     return (f"<div class=callnav>{lnk(older, '← earlier fetch')}"
             f"<span class=callno>Fetch #{cur}{latest} &nbsp;·&nbsp; {len(runs)} total</span>"
             f"{lnk(newer, 'later fetch →')}</div>")
+
+
+def _filter_bar(base: dict, tier: str, ctype: str, locf: str, af: str, company: str,
+                counts: dict | None, states) -> str:
+    """Standalone tier/type/location/apply/company filters — for the card views
+    (Last call) that don't have a table header to hang the column menus on."""
+    c = counts or {}
+    tier_h = _hmenu("Tier", "tier", tier, [("", "All"), ("voice_speech", "Voice"),
+                    ("ai_ml", "AI/ML"), ("swe_backend", "SWE")], base, c.get("tier"))
+    type_h = _hmenu("Type", "ctype", ctype, [("", "All"), ("funded_startup", "Startup"),
+                    ("unicorn", "Unicorn"), ("public_corp", "Public"),
+                    ("staffing_proxy", "Staffing"), ("yc_early", "YC")], base, c.get("ctype"))
+    loc_h = _hmenu("Location", "locf", locf,
+                   [("", "All"), ("remote", "Remote"), ("hybrid", "Hybrid")]
+                   + (states or []), base, c.get("locf"))
+    apply_h = _hmenu("Apply", "af", af, [("", "All"), ("auto", "Auto"),
+                     ("confirm", "Confirm"), ("manual", "Manual")], base, c.get("af"))
+    comp_h = _search_menu("Company", "company", company, base)
+    return (f"<div class=filterbar2>{tier_h}{type_h}{loc_h}{apply_h}{comp_h}</div>")
 
 
 @app.get("/", response_class=HTMLResponse)
