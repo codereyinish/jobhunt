@@ -471,12 +471,14 @@ mark.hl-gate.flash{outline:2px solid var(--red);animation:qflash 1.4s ease}
   margin:4px 0 2px}
 .frep{display:flex;flex-direction:column;gap:1px}
 .freprow{display:flex;align-items:baseline;gap:8px;padding:5px 7px;border-radius:7px;
-  font-size:11.5px;color:var(--muted);border:1px solid transparent}
-.freprow:hover{background:var(--panel2);border-color:var(--line)}
+  font-size:11.5px;color:var(--muted);border:1px solid transparent;cursor:pointer}
+.freprow:hover{background:var(--panel2);border-color:var(--accent)}
 .frepno{color:var(--accent);font-weight:640;font-variant-numeric:tabular-nums;min-width:22px}
 .frepn{color:var(--text);font-weight:560;white-space:nowrap}
 .frepbreak{flex:1;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .frepauto{color:var(--green);font-weight:560;white-space:nowrap}
+.freparrow{color:var(--accent);opacity:0;transition:opacity .12s;font-weight:600}
+.freprow:hover .freparrow{opacity:1}
 .kwlist{display:flex;flex-direction:column;gap:6px;width:100%;
   max-height:270px;overflow-y:auto;padding-right:3px}
 .kwrow{display:flex;align-items:center;gap:8px;background:var(--panel2);
@@ -1136,7 +1138,8 @@ def _fetch_report(conn, limit: int = 6) -> str:
             f"<span class=frepno>#{fr}</span>"
             f"<span class=frepn>{total} new</span>"
             f"<span class=frepbreak>{tb or '—'}</span>"
-            f"<span class=frepauto>{auto} auto</span></a>")
+            f"<span class=frepauto>{auto} auto</span>"
+            f"<span class=freparrow>&rarr;</span></a>")
     return f"<div class=frep>{''.join(lines)}</div>"
 
 
