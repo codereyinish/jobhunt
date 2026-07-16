@@ -32,6 +32,7 @@ CSS = """
   --amber:#c99a4a;
   --red:#d96f6f;
   --violet:#9a91ad;
+  --info:#7aa2e8;
 }
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
@@ -485,15 +486,17 @@ mark.hl-gate.flash{outline:2px solid var(--red);animation:qflash 1.4s ease}
 .fnode textarea{font-size:12px;line-height:1.5}
 .freplabel{font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);
   margin:4px 0 2px}
-.frep{display:flex;flex-direction:column;gap:1px}
-.freprow{display:flex;align-items:baseline;gap:8px;padding:5px 7px;border-radius:7px;
-  font-size:11.5px;color:var(--muted);border:1px solid transparent;cursor:pointer}
+.frep{display:flex;flex-direction:column;gap:2px}
+.freprow{display:flex;flex-direction:column;gap:3px;padding:7px 8px;border-radius:8px;
+  border:1px solid transparent;cursor:pointer}
 .freprow:hover{background:var(--panel2);border-color:var(--accent)}
+.freptop{display:flex;align-items:baseline;gap:9px;font-size:12px}
 .frepno{color:var(--accent);font-weight:640;font-variant-numeric:tabular-nums;min-width:22px}
-.frepn{color:var(--text);font-weight:560;white-space:nowrap}
-.frepbreak{flex:1;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.frepauto{color:var(--green);font-weight:560;white-space:nowrap}
-.frepmeta{color:var(--faint);font-weight:560;white-space:nowrap}
+.frepn{color:var(--text);font-weight:600;white-space:nowrap;flex:1}
+.frepauto{color:var(--green);font-weight:600;white-space:nowrap}
+.frepmeta{color:var(--info);font-weight:600;white-space:nowrap}
+.frepsub{font-size:11px;color:var(--muted);padding-left:31px;letter-spacing:.01em;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .fpending{font-size:12px;font-weight:560;color:var(--faint);margin:2px 0 12px}
 .fpending.on{color:var(--accent)}
 .freparrow{color:var(--accent);opacity:0;transition:opacity .12s;font-weight:600}
@@ -1156,11 +1159,11 @@ def _fetch_report(conn, limit: int = 6) -> str:
         tb = " &middot; ".join(f"{lbl} {tiers[k]}" for k, lbl in tier_labels if tiers.get(k))
         lines.append(
             f"<a class=freprow href='/?sort=fetch&fetch={fr}'>"
-            f"<span class=frepno>#{fr}</span>"
+            f"<div class=freptop><span class=frepno>#{fr}</span>"
             f"<span class=frepn>{total} new</span>"
-            f"<span class=frepbreak>{tb or '—'}</span>"
-            f"<span class=frepmeta>{auto} auto</span>"
-            f"<span class=freparrow>&rarr;</span></a>")
+            f"<span class=frepmeta>{auto} auto-apply</span>"
+            f"<span class=freparrow>&rarr;</span></div>"
+            f"<div class=frepsub>{tb or '—'}</div></a>")
     return f"<div class=frep>{''.join(lines)}</div>"
 
 
@@ -1179,11 +1182,11 @@ def _call_report(conn, limit: int = 6) -> str:
         passed = conn.execute(f"SELECT COUNT(*) FROM jobs WHERE {w} AND apply_ok = 1", pr).fetchone()[0]
         lines.append(
             f"<a class=freprow href='/?view=apply&run={cr}'>"
-            f"<span class=frepno>#{cr}</span>"
+            f"<div class=freptop><span class=frepno>#{cr}</span>"
             f"<span class=frepn>{total} read</span>"
-            f"<span class=frepbreak>{total - passed} filtered out</span>"
             f"<span class=frepauto>{passed} passed</span>"
-            f"<span class=freparrow>&rarr;</span></a>")
+            f"<span class=freparrow>&rarr;</span></div>"
+            f"<div class=frepsub>{total - passed} filtered out</div></a>")
     return f"<div class=frep>{''.join(lines)}</div>"
 
 
