@@ -30,6 +30,7 @@ CREATE TABLE IF NOT EXISTS jobs (
     analyzed_at  TEXT,                  -- when the deep-read last ran
     analysis_run INTEGER,               -- which analyze run/"call" produced this
     fetch_run    INTEGER,               -- which fetch batch first discovered this
+    checked_at   TEXT,                  -- last liveness probe (NULL = never checked)
     pinned       INTEGER DEFAULT 0,     -- manually added to the apply list
     status       TEXT DEFAULT 'new',    -- new | drafted | applied | skipped
     UNIQUE(source, source_id)
@@ -60,7 +61,7 @@ def connect():
         conn.executescript(SCHEMA)
         for col in ("fit INTEGER", "company_type TEXT", "afit INTEGER",
                     "apply_ok INTEGER", "analysis TEXT", "analyzed_at TEXT",
-                    "analysis_run INTEGER", "fetch_run INTEGER",
+                    "analysis_run INTEGER", "fetch_run INTEGER", "checked_at TEXT",
                     "pinned INTEGER DEFAULT 0"):                # migrate older DBs
             try:
                 conn.execute(f"ALTER TABLE jobs ADD COLUMN {col}")

@@ -143,10 +143,11 @@ def cmd_poll(args):
     raw = _fetch_all(cfg, comp, verbose=False)
     new_rows = _ingest(raw, cfg)
     _reconcile_ats(raw)
+    dead = _prune_dead()                    # close expired postings (all sources)
     threshold = cfg["sourcing"].get("notify_min_score", 60)
     hot = [j for j in new_rows if j["score"] >= threshold]
     print(f"[poll] {len(new_rows)} new, {len(hot)} above notify threshold "
-          f"({threshold}).")
+          f"({threshold}); {dead} expired closed.")
     if hot:
         top = max(hot, key=lambda x: x["score"])
         _notify(
@@ -391,6 +392,48 @@ def cmd_check(args):
         print("  not saved (doesn’t fit; use nothing to force, or fix filters).")
 
 
+def _prune_dead(limit: int = 150, workers: int = 16) -> int:
+    """Liveness-sweep stored jobs and close the definitively-dead ones. Covers
+    EVERY source (incl. JobSpy/Indeed, which reconcile never touches). Checks
+    apply-ready + least-recently-probed first; caps work at `limit` per run."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from .apply.liveness import probe
+
+    with db.connect() as conn:
+        rows = conn.execute(
+            "SELECT id, url FROM jobs WHERE status NOT IN ('closed','applied') "
+            "AND url IS NOT NULL AND url != '' "
+            "ORDER BY (apply_ok = 1 OR pinned = 1) DESC, checked_at IS NULL DESC, "
+            "checked_at ASC LIMIT ?", [limit]).fetchall()
+    jobs = [(r["id"], r["url"]) for r in rows]
+    if not jobs:
+        return 0
+
+    def _one(job):
+        jid, url = job
+        return jid, probe(url)
+
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        results = list(ex.map(_one, jobs))
+
+    closed = 0
+    with db.connect() as conn:
+        for jid, state in results:
+            if state == "dead":
+                conn.execute("UPDATE jobs SET status='closed', checked_at=datetime('now') "
+                             "WHERE id=?", [jid]); closed += 1
+            elif state == "live":
+                conn.execute("UPDATE jobs SET checked_at=datetime('now') WHERE id=?", [jid])
+            # 'unknown' → leave untouched, retry next sweep
+    return closed
+
+
+def cmd_prune(args):
+    n = _prune_dead(limit=args.limit)
+    print(f"Liveness sweep done — closed {n} expired posting(s).")
+
+
 def cmd_apply(args):
     from .apply.autofill import run
     with db.connect() as conn:
@@ -487,6 +530,10 @@ def main():
     ap_ = sub.add_parser("apply", help="open a job's application form pre-filled from your profile")
     ap_.add_argument("id", type=int, help="job id (from `jobhunt list`)")
     ap_.set_defaults(fn=cmd_apply)
+
+    pr = sub.add_parser("prune", help="close expired/dead postings (liveness sweep, all sources)")
+    pr.add_argument("--limit", type=int, default=150, help="max jobs to probe this run")
+    pr.set_defaults(fn=cmd_prune)
 
     args = ap.parse_args()
     args.fn(args)

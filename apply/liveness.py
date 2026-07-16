@@ -72,3 +72,37 @@ def is_live(url: str) -> bool:
     if vendor == "ashby" and jid:
         return _ashby_has(token, jid)
     return _html_ok(url)
+
+
+def probe(url: str) -> str:
+    """Tri-state liveness for a bulk sweep: 'live' | 'dead' | 'unknown'.
+
+    'unknown' (network error / ambiguous) is returned instead of 'dead' so a
+    transient blip can NEVER mass-close live jobs — only a definitive 404/gone
+    or an explicit 'no longer accepting' phrase counts as dead.
+    """
+    if not url:
+        return "unknown"
+    vendor, token, jid = _parse(url)
+    try:
+        if vendor == "greenhouse" and jid:
+            http_get(f"https://boards-api.greenhouse.io/v1/boards/{token}/jobs/{jid}")
+            return "live"
+        if vendor == "lever" and jid:
+            http_get(f"https://api.lever.co/v0/postings/{token}/{jid}")
+            return "live"
+        if vendor == "ashby" and jid:
+            data = http_get(f"https://api.ashbyhq.com/posting-api/job-board/{token}").json()
+            found = any(jid in (str(j.get("applyUrl", "")) + str(j.get("jobUrl", ""))
+                                + str(j.get("id", ""))) for j in data.get("jobs", []))
+            return "dead" if not found else "live"
+        r = requests.get(url, headers={"User-Agent": UA}, timeout=12, allow_redirects=True)
+        if r.status_code in (404, 410) or "error=true" in r.url:
+            return "dead"
+        if r.status_code >= 400:
+            return "unknown"
+        return "dead" if any(p in r.text.lower() for p in _DEAD) else "live"
+    except requests.HTTPError as e:
+        return "dead" if getattr(e.response, "status_code", 0) in (404, 410) else "unknown"
+    except (requests.RequestException, ValueError):
+        return "unknown"
