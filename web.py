@@ -41,8 +41,8 @@ html[data-theme=light]{
   --panel:#ffffff;
   --panel2:#f5f7f9;
   --elevated:#eceff2;
-  --line:#e8ebee;
-  --line2:#d9dee3;
+  --line:#dfe3e8;
+  --line2:#cfd5dc;
   --text:#1a1e24;
   --muted:#5b6572;
   --faint:#8a929e;
@@ -228,12 +228,12 @@ th{
   font-weight:600;padding:0 10px 12px;white-space:nowrap;
 }
 td{
-  padding:11px 10px;
+  padding:15px 10px;
   border-top:1px solid var(--line);
   vertical-align:middle;
 }
 tbody tr{transition:background .08s}
-tbody tr:hover td{background:rgba(20,217,196,.022)}
+tbody tr:hover td{background:var(--accent-soft)}
 td.num{
   color:var(--faint);width:28px;
   font-variant-numeric:tabular-nums;
@@ -266,11 +266,6 @@ td.num{
   font-family:ui-monospace,'Cascadia Code','Fira Code',monospace;letter-spacing:0;
 }
 .company{font-weight:600;white-space:nowrap;letter-spacing:-.01em}
-td.company{display:flex;align-items:center;gap:9px}
-.cav{width:26px;height:26px;border-radius:7px;flex-shrink:0;
-  display:inline-flex;align-items:center;justify-content:center;
-  font-size:12px;font-weight:700;color:var(--muted);
-  background:var(--panel2);border:1px solid var(--line2)}
 .cname.loved{color:var(--accent)}
 .love{
   margin-left:8px;cursor:pointer;
@@ -1133,7 +1128,7 @@ def _table(rows, fitcol, loved: set, show_why: bool = False, base: dict | None =
             f"<td class=score>{r['score']}</td>"
             f"<td class=tier>{_TIER_LABEL.get(r['tier'], r['tier'] or '—')}</td>"
             f"<td class='ctype{ct_cls}'>{_TYPE_LABEL.get(ctype, '—')}</td>"
-            f"<td class=company><span class=cav>{_e((comp[:1] or '?').upper())}</span>{heart}</td>"
+            f"<td class=company>{heart}</td>"
             f"<td class=role>{_e(r['title'])}</td>"
             f"<td class=loc>{loc_html}</td>{why_c}"
             f"<td class=posted>{_posted_ago(r['posted_at'])}</td>"
