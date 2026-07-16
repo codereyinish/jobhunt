@@ -590,7 +590,7 @@ _US_STATES = [
 def _tabs(view: str, base: dict) -> str:
     from urllib.parse import urlencode
     items = [("", "All jobs"), ("apply", "Apply-ready"),
-             ("rejected", "Rejected"), ("review", "Last call")]
+             ("rejected", "Rejected")]
     labels = dict(items)
     links = "".join(
         f"<a href='?{urlencode({**base, 'view': v, 'page': 0, 'fetch': 0, 'sort': ''})}'"
@@ -951,7 +951,7 @@ def _review_cards(rows) -> str:
             a = json.loads(r["analysis"]) or {}
         except Exception:
             a = {}
-        rejected = not r["apply_ok"]
+        rejected = not (r["apply_ok"] or r["pinned"])
         applied = r["status"] == "applied"
         reason_cls = "fail" if rejected else "pass"
         if applied:
@@ -1021,37 +1021,37 @@ def _render(tier: str, min_score: int, fresh: bool, sort: str,
         preference = load_preference()
     loved = loved_companies()
 
-    show_why = view in ("apply", "rejected", "call")
     call_runs, cur_run = [], 0
     fetch_runs, cur_fetch, in_fetch = [], 0, False
-    if view in ("call", "review"):
+    if view in ("apply", "rejected"):
+        # Card views, browsable by analysis "call". run=0 (default) = all calls;
+        # stepping into a call shows just what that call passed / filtered out.
         with db.connect() as _c:
             call_runs = [r[0] for r in _c.execute(
                 "SELECT DISTINCT analysis_run FROM jobs WHERE analysis_run IS NOT NULL "
                 "AND status != 'closed' ORDER BY analysis_run DESC").fetchall()]
-        cur_run = run if run in call_runs else (call_runs[0] if call_runs else 0)
-        base_where, base_p = "analysis_run = ? AND status != 'closed'", [cur_run]
-        order, fitcol = " ORDER BY afit DESC", "afit"
-    elif view == "apply":
-        base_where, base_p = "(apply_ok = 1 OR pinned = 1) AND status != 'closed'", []
+        cur_run = run if run in call_runs else 0
+        if view == "apply":
+            base_where, base_p = "(apply_ok = 1 OR pinned = 1) AND status != 'closed'", []
+        else:
+            base_where, base_p = "analysis IS NOT NULL AND apply_ok = 0 AND status != 'closed'", []
+        if cur_run:
+            base_where += " AND analysis_run = ?"; base_p.append(cur_run)
         order, fitcol = " ORDER BY afit IS NULL, afit DESC", "afit"
-    elif view == "rejected":
-        base_where = "analysis IS NOT NULL AND apply_ok = 0 AND status != 'closed'"
-        base_p = []
-        order, fitcol = " ORDER BY afit DESC", "afit"
     else:
-        # A fetch batch is selected either explicitly (fetch>0) or via the
-        # "Latest fetch" menu (sort=fetch). Once in a batch, the score sort still
-        # applies WITHIN it, so you can flip low↔high for that one fetch.
-        in_fetch = sort == "fetch" or fetch > 0
-        if in_fetch:
-            with db.connect() as _c:
-                fetch_runs = [r[0] for r in _c.execute(
-                    "SELECT DISTINCT fetch_run FROM jobs WHERE fetch_run IS NOT NULL "
-                    "AND status != 'closed' ORDER BY fetch_run DESC").fetchall()]
-            cur_fetch = fetch if fetch in fetch_runs else (fetch_runs[0] if fetch_runs else 0)
+        # All jobs: always-on fetch bar. A batch is selected explicitly (fetch>0)
+        # or via "Latest fetch" (sort=fetch); cur_fetch=0 means "all fetches".
+        with db.connect() as _c:
+            fetch_runs = [r[0] for r in _c.execute(
+                "SELECT DISTINCT fetch_run FROM jobs WHERE fetch_run IS NOT NULL "
+                "AND status != 'closed' ORDER BY fetch_run DESC").fetchall()]
+        if sort == "fetch" and fetch == 0:
+            cur_fetch = fetch_runs[0] if fetch_runs else 0
+        elif fetch in fetch_runs:
+            cur_fetch = fetch
+        in_fetch = cur_fetch > 0
         base_where, base_p = "score >= ? AND status != 'closed'", [min_score]
-        if in_fetch and cur_fetch:
+        if in_fetch:
             base_where += " AND fetch_run = ?"; base_p.append(cur_fetch)
         if fresh:
             base_where += " AND fetched_at >= datetime('now','-24 hours')"
@@ -1080,18 +1080,17 @@ def _render(tier: str, min_score: int, fresh: bool, sort: str,
     rows = rows[:_PAGE]
     base = {"view": view, "tier": tier, "min_score": min_score,
             "fresh": 1 if fresh else 0, "sort": sort, "min_fit": min_fit,
-            "ctype": ctype, "locf": locf, "af": af, "company": company, "run": run,
-            "fetch": cur_fetch if in_fetch else fetch}
+            "ctype": ctype, "locf": locf, "af": af, "company": company,
+            "run": cur_run, "fetch": cur_fetch}
     notice_html = f"<div class=result>{notice}</div>" if notice else ""
     tabs = _tabs(view, base)
-    if view == "review":
-        content = (tabs + _call_nav(cur_run, call_runs, base)
+    if view in ("apply", "rejected"):
+        content = (tabs + _run_nav(cur_run, call_runs, base, view)
                    + _filter_bar(base, tier, ctype, locf, af, company, dim_counts, avail_states)
                    + _review_cards(rows) + _pager(page, has_next, base))
     else:
-        fetch_nav = _fetch_nav(cur_fetch, fetch_runs, base) if in_fetch else ""
-        content = (tabs + fetch_nav + "<div class=panel>"
-                   + _table(rows, fitcol, loved, show_why, base, tier, sort, ctype, locf, af,
+        content = (tabs + _fetch_nav(cur_fetch, fetch_runs, base) + "<div class=panel>"
+                   + _table(rows, fitcol, loved, False, base, tier, sort, ctype, locf, af,
                             avail_states, company, dim_counts)
                    + _pager(page, has_next, base) + "</div>")
     return _page(
@@ -1100,23 +1099,6 @@ def _render(tier: str, min_score: int, fresh: bool, sort: str,
         + _check_form()
         + content
     )
-
-
-def _call_nav(cur: int, runs: list, base: dict) -> str:
-    from urllib.parse import urlencode
-    if not runs:
-        return ""
-    idx = runs.index(cur) if cur in runs else 0
-    newer = runs[idx - 1] if idx > 0 else None            # runs sorted DESC
-    older = runs[idx + 1] if idx + 1 < len(runs) else None
-
-    def lnk(r, label):
-        if r is None:
-            return f"<span class=faint>{label}</span>"
-        return f"<a href='?{urlencode({**base, 'view': 'review', 'run': r})}'>{label}</a>"
-    return (f"<div class=callnav>{lnk(older, '← older call')}"
-            f"<span class=callno>Call #{cur} &nbsp;·&nbsp; {len(runs)} total</span>"
-            f"{lnk(newer, 'newer call →')}</div>")
 
 
 def _fetch_report(conn, limit: int = 6) -> str:
@@ -1147,29 +1129,72 @@ def _fetch_report(conn, limit: int = 6) -> str:
 
 
 def _fetch_nav(cur: int, runs: list, base: dict) -> str:
-    """Browse jobs one fetch batch at a time — latest fetch and the ones before."""
+    """Always-on fetch bar. cur=0 shows 'All fetches · latest #N →'; inside a
+    batch it steps earlier/later and offers a way back to all fetches."""
     from urllib.parse import urlencode
     if not runs:
         return ("<div class=callnav><span class=callno>No fetches yet — run "
                 "<code>jobhunt source</code></span></div>")
-    idx = runs.index(cur) if cur in runs else 0
+
+    def go(r, label, extra=None):
+        params = {**base, "fetch": r, "page": 0}
+        if extra:
+            params.update(extra)
+        return f"<a href='?{urlencode(params)}'>{label}</a>"
+
+    if not cur:                                           # viewing all fetches
+        return (f"<div class=callnav><span class=faint>&nbsp;</span>"
+                f"<span class=callno><b>All fetches</b> &nbsp;·&nbsp; {len(runs)} runs</span>"
+                f"{go(runs[0], f'latest fetch #{runs[0]} →')}</div>")
+    idx = runs.index(cur)
     newer = runs[idx - 1] if idx > 0 else None            # runs sorted DESC
     older = runs[idx + 1] if idx + 1 < len(runs) else None
     latest = " · latest" if idx == 0 else ""
 
     def lnk(r, label):
-        if r is None:
-            return f"<span class=faint>{label}</span>"
-        return f"<a href='?{urlencode({**base, 'fetch': r, 'page': 0})}'>{label}</a>"
+        return f"<span class=faint>{label}</span>" if r is None else go(r, label)
     return (f"<div class=callnav>{lnk(older, '← earlier fetch')}"
-            f"<span class=callno>Fetch #{cur}{latest} &nbsp;·&nbsp; {len(runs)} total</span>"
+            f"<span class=callno>Fetch #{cur}{latest} &nbsp;·&nbsp; {len(runs)} total"
+            f" &nbsp; {go(0, 'all fetches', {'sort': ''})}</span>"
             f"{lnk(newer, 'later fetch →')}</div>")
+
+
+def _run_nav(cur: int, runs: list, base: dict, view: str) -> str:
+    """Always-on analysis-call bar for Apply-ready / Rejected. cur=0 = all calls;
+    stepping into a call shows just what that call passed / filtered out."""
+    from urllib.parse import urlencode
+    what = "passed" if view == "apply" else "filtered out"
+    if not runs:
+        return (f"<div class=callnav><span class=callno>No analysis yet — run a call "
+                f"from the <a href='/flow'>pipeline</a></span></div>")
+
+    def go(r, label, extra=None):
+        params = {**base, "view": view, "run": r, "page": 0}
+        if extra:
+            params.update(extra)
+        return f"<a href='?{urlencode(params)}'>{label}</a>"
+
+    if not cur:                                           # all calls
+        return (f"<div class=callnav><span class=faint>&nbsp;</span>"
+                f"<span class=callno><b>All calls</b> &nbsp;·&nbsp; {len(runs)} calls</span>"
+                f"{go(runs[0], f'last call #{runs[0]} →')}</div>")
+    idx = runs.index(cur)
+    newer = runs[idx - 1] if idx > 0 else None
+    older = runs[idx + 1] if idx + 1 < len(runs) else None
+    latest = " · latest" if idx == 0 else ""
+
+    def lnk(r, label):
+        return f"<span class=faint>{label}</span>" if r is None else go(r, label)
+    return (f"<div class=callnav>{lnk(older, '← earlier call')}"
+            f"<span class=callno>Call #{cur}{latest} &middot; {what} &nbsp;·&nbsp; {len(runs)} total"
+            f" &nbsp; {go(0, 'all calls')}</span>"
+            f"{lnk(newer, 'later call →')}</div>")
 
 
 def _filter_bar(base: dict, tier: str, ctype: str, locf: str, af: str, company: str,
                 counts: dict | None, states) -> str:
     """Standalone tier/type/location/apply/company filters — for the card views
-    (Last call) that don't have a table header to hang the column menus on."""
+    (Apply-ready / Rejected) that have no table header to hang column menus on."""
     c = counts or {}
     tier_h = _hmenu("Tier", "tier", tier, [("", "All"), ("voice_speech", "Voice"),
                     ("ai_ml", "AI/ML"), ("swe_backend", "SWE")], base, c.get("tier"))
