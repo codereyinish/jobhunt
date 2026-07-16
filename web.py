@@ -432,10 +432,11 @@ mark.hl-gate.flash{outline:2px solid var(--red);animation:qflash 1.4s ease}
   color:var(--faint);font-size:9.5px;font-weight:700;font-style:normal;cursor:help;
   display:inline-flex;align-items:center;justify-content:center;line-height:1}
 .tipmark:hover{border-color:var(--accent);color:var(--accent)}
-.tipbox{position:absolute;bottom:calc(100% + 9px);left:-6px;width:288px;z-index:60;
-  background:var(--panel2);border:1px solid var(--line2);border-radius:10px;padding:11px 13px;
+.tipbox{position:absolute;bottom:calc(100% + 9px);left:-6px;width:290px;z-index:60;
+  background:var(--panel2);border:1px solid var(--line2);border-radius:10px;padding:12px 14px;
   font-size:12px;line-height:1.55;color:var(--muted);font-weight:400;text-transform:none;
-  letter-spacing:normal;box-shadow:0 16px 44px rgba(0,0,0,.6);text-align:left;
+  letter-spacing:normal;white-space:normal;word-break:normal;overflow-wrap:break-word;
+  box-shadow:0 16px 44px rgba(0,0,0,.6);text-align:left;
   opacity:0;visibility:hidden;transition:opacity .13s;pointer-events:none}
 .tipbox b{color:var(--text);font-weight:640}
 .tipbox .k{color:var(--accent);font-weight:640}
