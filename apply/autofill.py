@@ -498,6 +498,29 @@ _PANEL_JS = r"""(data) => {
 }"""
 
 
+async def _launch(pw):
+    """Open a real, logged-in Google Chrome via a persistent profile the app owns,
+    so your Google/LinkedIn sessions carry over between runs. Falls back to the
+    built-in Chromium if Chrome isn't installed (or the profile is already open).
+
+    Returns (context, browser|None). browser is None for the persistent path — a
+    persistent context has no separate Browser object to close."""
+    from ..core.config import DATA_DIR
+    profile_dir = DATA_DIR / "chrome-profile"          # dedicated, reused every run
+    profile_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        ctx = await pw.chromium.launch_persistent_context(
+            str(profile_dir), channel="chrome", headless=False,
+            no_viewport=True, args=["--start-maximized"])
+        print("  ▶ using your Google Chrome (persistent jobhunt profile)")
+        return ctx, None
+    except Exception as e:
+        print(f"  (couldn't open your Chrome — {str(e)[:80]}… — using the built-in browser)")
+        browser = await pw.chromium.launch(headless=False, args=["--start-maximized"])
+        ctx = await browser.new_context(no_viewport=True)
+        return ctx, browser
+
+
 async def _arun(job: dict) -> None:
     import asyncio
 
@@ -514,9 +537,8 @@ async def _arun(job: dict) -> None:
     print(f"  {url}\n")
 
     async with async_playwright() as pw:
-        browser = await pw.chromium.launch(headless=False, args=["--start-maximized"])
-        ctx = await browser.new_context(no_viewport=True)
-        page = await ctx.new_page()
+        ctx, _browser = await _launch(pw)
+        page = ctx.pages[0] if ctx.pages else await ctx.new_page()
 
         # ── Panel actions, wired to the injected buttons (async = no re-entrancy deadlock) ──
         async def _on_autofill(source):
@@ -590,8 +612,8 @@ async def _arun(job: dict) -> None:
         print("  ⚠ REVIEW EVERY FIELD before you submit. Close the window when done.\n")
 
         try:
-            while browser.is_connected():
-                await page.wait_for_timeout(400)     # keep the window alive
+            while True:
+                await page.wait_for_timeout(500)     # alive until you close the window
         except Exception:
             pass
 
