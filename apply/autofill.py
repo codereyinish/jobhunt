@@ -240,6 +240,57 @@ def _cover_letter(job: dict, timeout: int = 150) -> str:
         return ""
 
 
+# Open-ended questions we CAN draft (essays), and ones we must never AI-answer
+# (demographic/EEO + the plain profile fields autofill already handles).
+_ANSWERABLE = (r"why |describe|tell us|what interests|what excites|how would|"
+               r"your experience|motivat|passion|proud|challenge|interest in|"
+               r"want to work|excited|what draws|why do you|why are you")
+_NOT_ANSWERABLE = (r"gender|race|veteran|disabilit|pronoun|ethnic|hispanic|salary|"
+                   r"compensation|how did you hear|referr|relocat|authorized|sponsor|"
+                   r"cover letter|first name|last name|e-?mail|phone|linkedin|github")
+
+
+def _answerable(label: str) -> bool:
+    import re
+    return bool(re.search(_ANSWERABLE, label)) and not re.search(_NOT_ANSWERABLE, label)
+
+
+def _answer_question(job: dict, question: str, hint: str = "", timeout: int = 150) -> str:
+    """Draft an answer to ONE application question from resume + JD (+ your hint)."""
+    from ..core.config import profile, resume_text
+    from ..match.llm import _run, claude_available
+    if not claude_available():
+        return ""
+    p = profile()
+    resume = resume_text()
+    prompt = (
+        "Answer this job-application question for the candidate, in the first person, ready to "
+        "paste. Ground every claim in the RESUME — invent nothing. Be specific and concise "
+        "(80-150 words unless the question implies otherwise). No clichés, do not restate the "
+        "question.\n\n"
+        f"QUESTION:\n{question}\n\n"
+        + (f"CANDIDATE'S GUIDANCE (follow this closely):\n{hint}\n\n" if hint.strip() else "")
+        + f"CANDIDATE NAME: {p.get('name', '')}\n"
+        f"ROLE: {job.get('title', '')} at {job.get('company', '')}\n\n"
+        f"JOB DESCRIPTION:\n{(job.get('description') or '')[:2000]}\n\n"
+        f"RESUME:\n{resume[:4500]}\n"
+    )
+    try:
+        return _run(prompt, timeout).strip()
+    except Exception:
+        return ""
+
+
+_INSERT_JS = r"""(a) => {
+  const el = document.querySelector(`[data-jh='${a.idx}']`);
+  if (!el) return false;
+  el.focus(); el.value = a.text;
+  el.dispatchEvent(new Event('input', {bubbles: true}));
+  el.dispatchEvent(new Event('change', {bubbles: true}));
+  return true;
+}"""
+
+
 _COVER_JS = r"""(text) => {
   const els = [...document.querySelectorAll('textarea, input[type=text]')];
   for (const el of els) {
@@ -318,6 +369,15 @@ _PANEL_JS = r"""(data) => {
     padding: 7px; font-size: 12px; font-weight: 600; color: #3d4757; cursor: pointer; }
   .jh-mini:hover { background: #f5f7fb; }
   .jh-foot { font-size: 11px; color: #9aa4b5; line-height: 1.4; margin-top: 12px; text-align: center; }
+  #jh-qlist { margin-top: 10px; display: flex; flex-direction: column; gap: 10px; }
+  .jh-qempty { font-size: 12px; color: #9aa4b5; text-align: center; padding: 6px 0; }
+  .jh-q { border: 1px solid #eef1f6; border-radius: 10px; padding: 10px 11px; background: #fbfcfe; }
+  .jh-qlabel { font-size: 12px; font-weight: 600; color: #3d4757; line-height: 1.35; margin-bottom: 8px; }
+  .jh-qhint { width: 100%; border: 1px solid #e0e5ee; border-radius: 8px; padding: 7px 9px;
+    font-size: 12px; color: #1a2233; margin-bottom: 8px; font-family: inherit; }
+  .jh-qhint:focus { outline: none; border-color: #3b82f6; }
+  .jh-qgen { width: 100%; }
+  #jh-panel .jh-cover { max-height: 220px; }
   `;
   document.head.appendChild(style);
 
@@ -346,6 +406,10 @@ _PANEL_JS = r"""(data) => {
           <button id="jh-insert" class="jh-mini">Insert into form</button>
         </div>
       </div>
+      <div class="jh-sep"></div>
+      <div class="jh-label">Application questions</div>
+      <button id="jh-scan" class="jh-btn jh-outline">&#9906; Scan this page for questions</button>
+      <div id="jh-qlist"></div>
       <div class="jh-sep"></div>
       <button id="jh-applied" class="jh-btn jh-done-btn">Mark applied &rarr;</button>
       <div class="jh-foot">Review every field before you submit — nothing is submitted for you.</div>
@@ -389,6 +453,48 @@ _PANEL_JS = r"""(data) => {
     const b = e.currentTarget; b.disabled = true;
     try { await window.jhApplied(); } catch (err) {}
     b.classList.add('done'); b.textContent = 'Applied ✓ — added to tracker'; };
+
+  $('#jh-scan').onclick = async (e) => {
+    const b = e.currentTarget, o = b.innerHTML; b.disabled = true; b.textContent = 'Scanning…';
+    let qs = []; try { qs = await window.jhQuestions(); } catch (err) {}
+    const list = $('#jh-qlist'); list.innerHTML = '';
+    if (!qs || !qs.length) {
+      list.innerHTML = '<div class="jh-qempty">No open-ended questions found on this page.</div>';
+    }
+    (qs || []).forEach((q) => {
+      const card = document.createElement('div'); card.className = 'jh-q';
+      let raw = q.label || 'Question';
+      const m = raw.match(/^(.*?[?.:])(\s|$)/);           // collector repeats the label — keep 1st sentence
+      let lab = (m ? m[1] : raw).replace(/</g, '&lt;').slice(0, 140);
+      card.innerHTML = `
+        <div class="jh-qlabel">${lab}</div>
+        <input class="jh-qhint" placeholder="Add a hint to steer the answer (optional)">
+        <button class="jh-qgen jh-mini">&#10024; Generate answer</button>
+        <textarea class="jh-qans jh-cover" rows="5" style="display:none;margin-top:8px"></textarea>
+        <div class="jh-row jh-qrow" style="display:none">
+          <button class="jh-qcopy jh-mini">Copy</button>
+          <button class="jh-qins jh-mini">Insert into form</button>
+        </div>`;
+      const gen = card.querySelector('.jh-qgen'), ans = card.querySelector('.jh-qans'),
+            row = card.querySelector('.jh-qrow'), hint = card.querySelector('.jh-qhint');
+      gen.onclick = async () => {
+        const oo = gen.innerHTML; gen.disabled = true; gen.textContent = 'Writing… ~30s';
+        let t = ''; try { t = await window.jhAnswer(q.label, hint.value); } catch (err) {}
+        ans.style.display = 'block'; row.style.display = 'flex';
+        ans.value = t || 'Could not generate — is the claude CLI available?';
+        gen.disabled = false; gen.innerHTML = oo;
+      };
+      card.querySelector('.jh-qcopy').onclick = () => { ans.select();
+        try { document.execCommand('copy'); } catch (e) {} };
+      card.querySelector('.jh-qins').onclick = async (ev) => {
+        const ok = await window.jhInsertField(q.idx, ans.value);
+        ev.currentTarget.textContent = ok ? 'Inserted ✓' : 'Failed';
+        setTimeout(() => ev.currentTarget.textContent = 'Insert into form', 1600);
+      };
+      list.appendChild(card);
+    });
+    b.disabled = false; b.innerHTML = o;
+  };
 }"""
 
 
@@ -431,10 +537,33 @@ async def _arun(job: dict) -> None:
                 _mark_applied(job["id"])
             return True
 
+        async def _on_questions(source):
+            data = await page.evaluate(_JS_COLLECT)
+            out = []
+            for f in data["fields"]:
+                is_text = f["tag"] == "textarea" or (f["tag"] == "input" and f["type"] in ("text", ""))
+                if is_text and _answerable(f["label"]):
+                    out.append({"idx": f["idx"], "label": f["label"]})
+            return out
+
+        async def _on_answer(source, question, hint):
+            # claude CLI is blocking — off the event loop so the panel stays responsive.
+            return await asyncio.get_event_loop().run_in_executor(
+                None, _answer_question, job, question or "", hint or "")
+
+        async def _on_insert_field(source, idx, text):
+            try:
+                return bool(await page.evaluate(_INSERT_JS, {"idx": idx, "text": text or ""}))
+            except Exception:
+                return False
+
         await page.expose_binding("jhAutofill", _on_autofill)
         await page.expose_binding("jhCover", _on_cover)
         await page.expose_binding("jhInsertCover", _on_insert)
         await page.expose_binding("jhApplied", _on_applied)
+        await page.expose_binding("jhQuestions", _on_questions)
+        await page.expose_binding("jhAnswer", _on_answer)
+        await page.expose_binding("jhInsertField", _on_insert_field)
 
         async def _inject():
             try:
