@@ -801,6 +801,7 @@ def _toolbar() -> str:
     return (
         "<div class=toolbar>"
         "<button class=tool-btn id=themebtn onclick='toggleTheme()' title='Light / dark'></button>"
+        "<a class=tool-btn href='?view=tracker'>&#9638;&nbsp; Tracker</a>"
         "<a class=tool-btn href='/flow'>&#9781;&nbsp; Pipeline</a>"
         "<label for=ctxtoggle class=tool-btn>&#9998;&nbsp; Resume</label>"
         "<label for=preftoggle class=tool-btn>&#10022;&nbsp; Preference</label>"
