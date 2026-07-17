@@ -11,7 +11,6 @@ Run:  python -m jobhunt.apply.autofill <job_id>
 from __future__ import annotations
 
 import sys
-import time
 
 from ..core import db
 from ..core.config import profile
@@ -133,11 +132,11 @@ def _choose_option(options: list[str], want: str) -> str | None:
     return None
 
 
-def fill(page, vals: dict) -> list[str]:
-    """Fill everything we recognize on the current page. Returns a log."""
-    log: list[str] = []
-    data = page.evaluate(_JS_COLLECT)
-
+def _plan(data: dict, vals: dict) -> tuple[list, list]:
+    """Pure decision step: from collected fields decide what to fill. Returns
+    (actions, log) where each action is (kind, selector, arg). Shared by the sync
+    and async executors so the matching logic never drifts."""
+    actions, log = [], []
     for f in data["fields"]:
         sel = f"[data-jh='{f['idx']}']"
         label = f["label"]
@@ -145,87 +144,351 @@ def fill(page, vals: dict) -> list[str]:
             continue
         if f["tag"] == "select":
             concept = _match(label, _CHOICE_RULES) or _match(label, _TEXT_RULES)
-            if not concept:
+            if concept not in ("authorized", "sponsorship"):
                 continue
-            want = vals.get(concept, "")
-            opt = _choose_option(f["options"], want) if concept in ("authorized", "sponsorship") else None
+            opt = _choose_option(f["options"], vals.get(concept, ""))
             if opt:
-                try:
-                    page.select_option(sel, label=opt)
-                    log.append(f"  ✓ [{label[:40]}] → {opt}")
-                except Exception:
-                    pass
+                actions.append(("select", sel, opt))
+                log.append(f"  ✓ [{label[:40]}] → {opt}")
             continue
-        # text / textarea input
         concept = _match(label, _TEXT_RULES)
-        if not concept:
-            continue
-        val = vals.get(concept, "")
+        val = vals.get(concept, "") if concept else ""
         if not val:
             continue
-        try:
-            page.fill(sel, val)
-            log.append(f"  ✓ [{label[:40]}] → {val}")
-        except Exception:
-            pass
+        actions.append(("fill", sel, val))
+        log.append(f"  ✓ [{label[:40]}] → {val}")
 
-    # resume upload
     resume = vals.get("resume_path")
     if resume and data["files"]:
         target = next((f for f in data["files"] if "resume" in f["label"] or "cv" in f["label"]),
                       data["files"][0])
-        try:
-            page.set_input_files(f"[data-jhf='{target['i']}']", resume)
-            log.append(f"  ✓ resume uploaded ({resume})")
-        except Exception as e:
-            log.append(f"  ✗ resume upload failed: {e}")
+        actions.append(("file", f"[data-jhf='{target['i']}']", resume))
+        log.append(f"  ✓ resume uploaded ({resume})")
     elif not resume:
         log.append("  ⚠ no resume_path in profile.yaml — upload it yourself")
+    return actions, log
 
+
+def fill(page, vals: dict) -> list[str]:
+    """Sync filler (CLI / ad-hoc use). Fills everything recognized; returns a log."""
+    actions, log = _plan(page.evaluate(_JS_COLLECT), vals)
+    for kind, sel, arg in actions:
+        try:
+            if kind == "fill":
+                page.fill(sel, arg)
+            elif kind == "select":
+                page.select_option(sel, label=arg)
+            elif kind == "file":
+                page.set_input_files(sel, arg)
+        except Exception:
+            pass
     return log
 
 
-def run(job: dict) -> None:
-    from playwright.sync_api import sync_playwright
+async def _afill(page, vals: dict) -> list[str]:
+    """Async filler — safe to call from an exposed-binding callback."""
+    actions, log = _plan(await page.evaluate(_JS_COLLECT), vals)
+    for kind, sel, arg in actions:
+        try:
+            if kind == "fill":
+                await page.fill(sel, arg)
+            elif kind == "select":
+                await page.select_option(sel, label=arg)
+            elif kind == "file":
+                await page.set_input_files(sel, arg)
+        except Exception:
+            pass
+    return log
+
+
+def _skill_match(job: dict) -> dict:
+    """A lightweight Simplify-style 'resume match': how many of your profile skills
+    actually appear in this job's description."""
+    from ..core.config import profile
+    skills = [s for s in (profile().get("skills") or []) if s]
+    jd = (job.get("description") or "").lower()
+    if not skills or not jd:
+        return {"pct": 0, "have": 0, "total": len(skills)}
+    have = sum(1 for s in skills if s.lower() in jd)
+    return {"pct": round(100 * have / len(skills)), "have": have, "total": len(skills)}
+
+
+def _cover_letter(job: dict, timeout: int = 150) -> str:
+    """Draft a tailored cover letter from the resume + this JD via the claude CLI."""
+    from ..core.config import profile, resume_text
+    from ..match.llm import _run, claude_available
+    if not claude_available():
+        return ""
+    p = profile()
+    resume = resume_text()
+    prompt = (
+        "Write a concise, specific cover letter (about 220-260 words) for this candidate "
+        "applying to the role below. Ground every claim in the RESUME — invent nothing. No "
+        "clichés, no 'I am writing to express my interest'. Open with a specific hook tied to "
+        "the role, cite 2-3 concrete resume achievements that match the requirements, then a "
+        "short close. Plain text, ready to paste, no placeholders — use the real company and "
+        "role. Sign off with the candidate's name.\n\n"
+        f"CANDIDATE NAME: {p.get('name', '')}\n"
+        f"ROLE: {job.get('title', '')} at {job.get('company', '')}\n"
+        f"LOCATION: {job.get('location', '')}\n\n"
+        f"JOB DESCRIPTION:\n{(job.get('description') or '')[:3000]}\n\n"
+        f"RESUME:\n{resume[:4500]}\n"
+    )
+    try:
+        return _run(prompt, timeout).strip()
+    except Exception:
+        return ""
+
+
+_COVER_JS = r"""(text) => {
+  const els = [...document.querySelectorAll('textarea, input[type=text]')];
+  for (const el of els) {
+    const anc = el.closest('label, .field, [class*=field]');
+    const lab = ((anc ? anc.innerText : '') + ' ' + (el.name || '') + ' ' +
+                 (el.getAttribute('aria-label') || '') + ' ' + (el.placeholder || '')).toLowerCase();
+    if (lab.includes('cover')) {
+      el.focus(); el.value = text;
+      el.dispatchEvent(new Event('input', {bubbles: true}));
+      el.dispatchEvent(new Event('change', {bubbles: true}));
+      return true;
+    }
+  }
+  return false;
+}"""
+
+
+async def _afill_cover_field(page, text: str) -> bool:
+    """Drop the cover letter into a cover-letter textarea on the page, if one exists."""
+    try:
+        return bool(await page.evaluate(_COVER_JS, text))
+    except Exception:
+        return False
+
+
+# The floating Simplify-style panel, injected into the page. All state/spinners
+# live in JS; buttons call the Python bindings exposed below.
+_PANEL_JS = r"""(data) => {
+  if (document.getElementById('jh-panel')) return;
+  const style = document.createElement('style');
+  style.id = 'jh-style';
+  style.textContent = `
+  #jh-panel, #jh-panel * { box-sizing: border-box; font-family: -apple-system,
+    BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+  #jh-panel { position: fixed; top: 18px; right: 18px; width: 340px; z-index: 2147483647;
+    background: #fff; border: 1px solid #e6e9ef; border-radius: 16px;
+    box-shadow: 0 18px 60px rgba(20,30,60,.22); overflow: hidden; color: #1a2233; }
+  .jh-head { display: flex; align-items: center; justify-content: space-between;
+    padding: 13px 16px; border-bottom: 1px solid #eef1f6; }
+  .jh-brand { display: flex; align-items: center; gap: 7px; font-weight: 700; font-size: 15px; }
+  .jh-bolt { display: inline-flex; align-items: center; justify-content: center; width: 22px;
+    height: 22px; background: linear-gradient(135deg,#3b82f6,#22d3c5); border-radius: 6px;
+    color: #fff; font-size: 12px; }
+  .jh-x { cursor: pointer; color: #9aa4b5; font-size: 21px; line-height: 1; padding: 0 4px; }
+  .jh-x:hover { color: #556; }
+  .jh-body { padding: 14px 16px 16px; }
+  .jh-jobline { font-size: 12px; color: #6b7688; margin-bottom: 12px; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; }
+  .jh-match { display: flex; align-items: center; gap: 12px; background: #f5f8ff;
+    border: 1px solid #e6edfb; border-radius: 12px; padding: 11px 13px; margin-bottom: 14px; }
+  .jh-ring { flex-shrink: 0; width: 46px; height: 46px; border-radius: 50%; display: flex;
+    align-items: center; justify-content: center; font-size: 12px; font-weight: 700; color: #2563eb; }
+  .jh-matchtxt { font-size: 12.5px; line-height: 1.4; color: #3d4757; }
+  .jh-matchtxt b { color: #1a2233; }
+  .jh-btn { width: 100%; border: none; border-radius: 10px; padding: 11px 14px; font-size: 14px;
+    font-weight: 650; cursor: pointer; display: flex; align-items: center; justify-content: center;
+    gap: 7px; transition: filter .12s, background .12s; }
+  .jh-btn:disabled { opacity: .6; cursor: default; }
+  .jh-primary { background: linear-gradient(135deg,#3b82f6,#2f6ef0); color: #fff; }
+  .jh-primary:hover:not(:disabled) { filter: brightness(1.06); }
+  .jh-outline { background: #fff; color: #2563eb; border: 1.5px solid #cfe0fd; }
+  .jh-outline:hover:not(:disabled) { background: #f5f8ff; }
+  .jh-done-btn { background: #ecfdf5; color: #059669; border: 1.5px solid #b6ebd4; }
+  .jh-done-btn.done { background: #059669; color: #fff; border-color: #059669; }
+  .jh-stat { font-size: 12.5px; color: #059669; font-weight: 600; margin-top: 8px;
+    min-height: 0; text-align: center; }
+  .jh-sep { height: 1px; background: #eef1f6; margin: 14px 0; }
+  .jh-label { font-size: 10.5px; text-transform: uppercase; letter-spacing: .08em;
+    color: #94a0b3; font-weight: 700; margin-bottom: 9px; }
+  .jh-coverwrap { display: none; margin-top: 10px; }
+  .jh-cover { width: 100%; border: 1px solid #e0e5ee; border-radius: 9px; padding: 9px 11px;
+    font-size: 12.5px; line-height: 1.5; color: #1a2233; resize: vertical; font-family: inherit; }
+  .jh-cover:focus { outline: none; border-color: #3b82f6; }
+  .jh-row { display: flex; gap: 8px; margin-top: 8px; }
+  .jh-mini { flex: 1; border: 1px solid #e0e5ee; background: #fff; border-radius: 8px;
+    padding: 7px; font-size: 12px; font-weight: 600; color: #3d4757; cursor: pointer; }
+  .jh-mini:hover { background: #f5f7fb; }
+  .jh-foot { font-size: 11px; color: #9aa4b5; line-height: 1.4; margin-top: 12px; text-align: center; }
+  `;
+  document.head.appendChild(style);
+
+  const pct = data.match.total ? data.match.pct : 0;
+  const wrap = document.createElement('div'); wrap.id = 'jh-panel';
+  wrap.innerHTML = `
+    <div class="jh-head">
+      <div class="jh-brand"><span class="jh-bolt">&#9889;</span> jobhunt</div>
+      <span id="jh-close" class="jh-x">&times;</span>
+    </div>
+    <div class="jh-body">
+      <div class="jh-jobline">${data.title || ''}${data.company ? ' &middot; ' + data.company : ''}</div>
+      <div class="jh-match">
+        <div class="jh-ring" id="jh-ring">${pct}%</div>
+        <div class="jh-matchtxt"><b>${data.match.have} of ${data.match.total}</b> of your skills appear in this job</div>
+      </div>
+      <button id="jh-autofill" class="jh-btn jh-primary">&#9889; Autofill this page</button>
+      <div id="jh-fillstat" class="jh-stat"></div>
+      <div class="jh-sep"></div>
+      <div class="jh-label">Cover letter</div>
+      <button id="jh-cover" class="jh-btn jh-outline">&#9998; Generate with AI</button>
+      <div id="jh-coverwrap" class="jh-coverwrap">
+        <textarea id="jh-covertext" class="jh-cover" rows="8" placeholder="Your cover letter will appear here…"></textarea>
+        <div class="jh-row">
+          <button id="jh-copy" class="jh-mini">Copy</button>
+          <button id="jh-insert" class="jh-mini">Insert into form</button>
+        </div>
+      </div>
+      <div class="jh-sep"></div>
+      <button id="jh-applied" class="jh-btn jh-done-btn">Mark applied &rarr;</button>
+      <div class="jh-foot">Review every field before you submit — nothing is submitted for you.</div>
+    </div>`;
+  document.body.appendChild(wrap);
+
+  const ring = wrap.querySelector('#jh-ring');
+  const col = pct >= 60 ? '#059669' : (pct >= 30 ? '#2563eb' : '#e0863a');
+  ring.style.background = `conic-gradient(${col} ${pct * 3.6}deg, #e6edfb 0deg)`;
+  ring.style.color = col;
+  const inner = document.createElement('div');
+  inner.style.cssText = 'width:36px;height:36px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;';
+  inner.textContent = pct + '%'; ring.textContent = ''; ring.appendChild(inner);
+
+  const $ = s => wrap.querySelector(s);
+  $('#jh-close').onclick = () => { wrap.remove(); };
+  $('#jh-autofill').onclick = async (e) => {
+    const b = e.currentTarget, o = b.innerHTML; b.disabled = true; b.textContent = 'Filling…';
+    try { const r = await window.jhAutofill();
+      $('#jh-fillstat').textContent = r && r.count ? ('✓ Filled ' + r.count + ' field' + (r.count == 1 ? '' : 's') + ' — review them')
+                                                   : 'No recognizable fields — fill manually';
+    } catch (err) { $('#jh-fillstat').textContent = 'Autofill failed'; }
+    b.disabled = false; b.innerHTML = o;
+  };
+  $('#jh-cover').onclick = async (e) => {
+    const b = e.currentTarget, o = b.innerHTML; b.disabled = true; b.textContent = 'Writing… ~30s';
+    $('#jh-coverwrap').style.display = 'block';
+    try { const t = await window.jhCover();
+      $('#jh-covertext').value = t || 'Could not generate — is the claude CLI available?';
+    } catch (err) { $('#jh-covertext').value = 'Could not generate the cover letter.'; }
+    b.disabled = false; b.innerHTML = o;
+  };
+  $('#jh-copy').onclick = () => { const t = $('#jh-covertext'); t.select();
+    try { document.execCommand('copy'); } catch (e) {}
+    $('#jh-copy').textContent = 'Copied ✓'; setTimeout(() => $('#jh-copy').textContent = 'Copy', 1500); };
+  $('#jh-insert').onclick = async () => {
+    const ok = await window.jhInsertCover($('#jh-covertext').value);
+    $('#jh-insert').textContent = ok ? 'Inserted ✓' : 'No field on page';
+    setTimeout(() => $('#jh-insert').textContent = 'Insert into form', 1800); };
+  $('#jh-applied').onclick = async (e) => {
+    const b = e.currentTarget; b.disabled = true;
+    try { await window.jhApplied(); } catch (err) {}
+    b.classList.add('done'); b.textContent = 'Applied ✓ — added to tracker'; };
+}"""
+
+
+async def _arun(job: dict) -> None:
+    import asyncio
+
+    from playwright.async_api import async_playwright
 
     url = job.get("url")
     if not url or url == "#":
         print("This job has no application URL.")
         return
     vals = _profile_values()
+    panel_data = {"title": job.get("title", ""), "company": job.get("company", ""),
+                  "match": _skill_match(job)}
     print(f"\n▶ Opening application for: {job.get('title', '')} — {job.get('company', '')}")
     print(f"  {url}\n")
 
-    with sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=False, args=["--start-maximized"])
-        ctx = browser.new_context(no_viewport=True)
-        page = ctx.new_page()
-        page.goto(url, wait_until="domcontentloaded", timeout=45000)
-        page.wait_for_timeout(2500)                    # let the form render
+    async with async_playwright() as pw:
+        browser = await pw.chromium.launch(headless=False, args=["--start-maximized"])
+        ctx = await browser.new_context(no_viewport=True)
+        page = await ctx.new_page()
+
+        # ── Panel actions, wired to the injected buttons (async = no re-entrancy deadlock) ──
+        async def _on_autofill(source):
+            log = await _afill(page, vals)
+            if job.get("id"):
+                _mark_drafted(job["id"])
+            return {"count": len(log), "log": log}
+
+        async def _on_cover(source):
+            # claude CLI is blocking — run it off the event loop so the UI stays live.
+            return await asyncio.get_event_loop().run_in_executor(None, _cover_letter, job)
+
+        async def _on_insert(source, text):
+            return await _afill_cover_field(page, text or "")
+
+        async def _on_applied(source):
+            if job.get("id"):
+                _mark_applied(job["id"])
+            return True
+
+        await page.expose_binding("jhAutofill", _on_autofill)
+        await page.expose_binding("jhCover", _on_cover)
+        await page.expose_binding("jhInsertCover", _on_insert)
+        await page.expose_binding("jhApplied", _on_applied)
+
+        async def _inject():
+            try:
+                await page.evaluate(_PANEL_JS, panel_data)
+            except Exception:
+                pass
+
+        page.on("load", lambda *a: asyncio.create_task(_inject()))   # re-inject after navigations
+
+        await page.goto(url, wait_until="domcontentloaded", timeout=45000)
+        await page.wait_for_timeout(2500)            # let the form render
 
         # Some ATS hide the form behind an "Apply" button — click it if present.
         for txt in ("Apply for this job", "Apply", "I'm interested", "Apply Now"):
             try:
                 btn = page.get_by_role("button", name=txt, exact=False).first
-                if btn.is_visible(timeout=800):
-                    btn.click(); page.wait_for_timeout(1500); break
+                if await btn.is_visible(timeout=800):
+                    await btn.click(); await page.wait_for_timeout(1500); break
             except Exception:
                 continue
 
-        log = fill(page, vals)
-        print("Filled:")
-        print("\n".join(log) if log else "  (no recognizable fields — fill manually)")
-        print("\n⚠ REVIEW EVERY FIELD — especially work authorization — then click Submit yourself.")
-        print("  Close the browser window when done.\n")
-
-        if job.get("id"):
-            _mark_drafted(job["id"])
+        await _inject()
+        print("▶ Panel loaded — use it to autofill, draft a cover letter, and mark applied.")
+        print("  ⚠ REVIEW EVERY FIELD before you submit. Close the window when done.\n")
 
         try:
             while browser.is_connected():
-                time.sleep(1)
-        except KeyboardInterrupt:
+                await page.wait_for_timeout(400)     # keep the window alive
+        except Exception:
             pass
+
+
+def run(job: dict) -> None:
+    import asyncio
+    asyncio.run(_arun(job))
+
+
+def _mark_applied(job_id: int) -> None:
+    """Mark applied + log a submitted application — mirrors the web /applied route
+    and stamps the tracker lane so the card lands in Applied."""
+    try:
+        with db.connect() as conn:
+            conn.execute("UPDATE jobs SET status='applied', track_status='applied' WHERE id=?", (job_id,))
+            n = conn.execute(
+                "UPDATE applications SET status='submitted', submitted_at=CURRENT_TIMESTAMP "
+                "WHERE job_id=? AND status='draft'", (job_id,)).rowcount
+            has = conn.execute("SELECT 1 FROM applications WHERE job_id=? AND status='submitted'",
+                               (job_id,)).fetchone()
+            if not n and not has:
+                conn.execute("INSERT INTO applications (job_id, status, submitted_at) "
+                             "VALUES (?, 'submitted', CURRENT_TIMESTAMP)", (job_id,))
+            conn.commit()
+    except Exception:
+        pass
 
 
 def _mark_drafted(job_id: int) -> None:
