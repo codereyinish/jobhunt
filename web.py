@@ -335,6 +335,7 @@ td a:hover{
 #favtoggle:checked ~ .fav-ov{display:flex}
 #preftoggle:checked ~ .pref-ov{display:flex}
 #ctxtoggle:checked ~ .ctx-ov{display:flex}
+#addtoggle:checked ~ .add-ov{display:flex}
 .chips{display:flex;flex-wrap:wrap;gap:7px}
 .chip{
   background:var(--panel2);border:1px solid var(--line2);
@@ -390,6 +391,49 @@ td a:hover{
 .toast-undo{background:none;border:none;color:var(--accent);font-weight:640;font-size:13.5px;
   cursor:pointer;padding:0}
 .toast-undo:hover{text-decoration:underline}
+
+/* ── Kanban tracker board ── */
+.board-bar{display:flex;align-items:center;justify-content:space-between;gap:16px;
+  margin-bottom:18px;flex-wrap:wrap}
+.board-total{font-size:12px;font-weight:600;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--muted)}
+.board-total b{color:var(--text);font-size:14px}
+.board-tools{display:flex;align-items:center;gap:10px}
+.bsearch{background:var(--panel2);border:1px solid var(--line2);border-radius:9px;
+  padding:9px 13px;font-size:13px;color:var(--text);width:min(320px,52vw)}
+.bsearch:focus{outline:none;border-color:var(--accent)}
+.board{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;align-items:start}
+.bcol{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+  padding:12px 12px 14px;min-height:120px;transition:background .12s,border-color .12s}
+.bcol.dragover{border-color:var(--accent);background:var(--accent-soft)}
+.bcol-head{display:flex;align-items:center;justify-content:center;gap:8px;
+  padding:4px 4px 12px;position:relative}
+.bcol-name{font-size:12px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;
+  color:var(--muted)}
+.bcol-count{font-size:11px;font-weight:600;color:var(--faint);
+  background:var(--panel2);border-radius:999px;padding:1px 8px;font-variant-numeric:tabular-nums}
+.bcol-body{display:flex;flex-direction:column;gap:10px;min-height:60px}
+.bcol-empty{color:var(--line2);font-size:12px;text-align:center;padding:22px 0;
+  border:1.5px dashed var(--line);border-radius:10px}
+.bcard{background:var(--panel2);border:1px solid var(--line2);border-radius:11px;
+  padding:13px 14px 12px;position:relative;cursor:grab;box-shadow:0 1px 3px var(--shadow);
+  transition:border-color .12s,transform .1s,box-shadow .12s}
+.bcard:hover{border-color:var(--line2);box-shadow:0 4px 14px var(--shadow)}
+.bcard.dragging{opacity:.45;cursor:grabbing}
+.bc-top{display:flex;align-items:flex-start;gap:8px}
+.bc-role{font-weight:600;font-size:13.5px;line-height:1.3;letter-spacing:-.01em;
+  color:var(--text);flex:1;min-width:0;transition:color .12s}
+a.bc-role:hover{color:var(--accent)}
+.bc-top .love{opacity:.45;font-size:13px;flex-shrink:0}
+.bc-top .love:hover,.bc-top .love.on{opacity:1}
+.bc-company{color:var(--muted);font-size:12.5px;font-weight:560;margin-top:5px}
+.bc-loc{color:var(--faint);font-size:11.5px;margin-top:3px;display:flex;align-items:center;gap:5px}
+.bc-loc span{font-size:8px}
+.bc-x{position:absolute;top:8px;right:9px;color:var(--line2);font-size:15px;line-height:1;
+  cursor:pointer;opacity:0;transition:opacity .12s,color .12s;display:none}
+.bcard:hover .bc-x{opacity:1;display:block}
+.bc-x:hover{color:var(--red)}
+@media (max-width:860px){.board{grid-template-columns:repeat(2,1fr)}}
 
 /* ── Review cards (latest-call audit view) ── */
 .review{display:flex;flex-direction:column;gap:14px}
@@ -721,7 +765,7 @@ _US_STATES = [
 def _tabs(view: str, base: dict) -> str:
     from urllib.parse import urlencode
     items = [("", "All jobs"), ("apply", "Apply-ready"),
-             ("rejected", "Rejected")]
+             ("rejected", "Rejected"), ("tracker", "Tracker")]
     labels = dict(items)
     links = "".join(
         f"<a href='?{urlencode({**base, 'view': v, 'page': 0, 'fetch': 0, 'sort': ''})}'"
@@ -837,7 +881,7 @@ def _page(body: str) -> str:
             "<script>(function(){var t=localStorage.getItem('theme');"
             "if(t)document.documentElement.dataset.theme=t;})();</script>"
             f"<title>jobhunt</title><style>{CSS}</style></head>"
-            f"<body>{_toggles()}{_fav_modal()}{_pref_modal()}{_context_modal()}"
+            f"<body>{_toggles()}{_fav_modal()}{_pref_modal()}{_context_modal()}{_add_modal()}"
             f"<div class=wrap>{body}</div>{_JS}</body></html>")
 
 
@@ -961,6 +1005,48 @@ function liveFilter(el){   // instant filter of the loaded rows
     if(tr.querySelector('.emptyrow')) return;
     var hit=tr.textContent.toLowerCase().indexOf(q)>=0;
     tr.style.display=hit?'':'none'; if(hit) n++;
+  });
+}
+/* ── Kanban tracker ── */
+function _boardCounts(){
+  document.querySelectorAll('#board .bcol').forEach(function(col){
+    var body=col.querySelector('.bcol-body');
+    var n=body.querySelectorAll('.bcard').length;
+    col.querySelector('.bcol-count').textContent=n;
+    var empty=body.querySelector('.bcol-empty');
+    if(n===0 && !empty){
+      var d=document.createElement('div'); d.className='bcol-empty';
+      d.textContent='Drop a job here'; body.appendChild(d);
+    } else if(n>0 && empty){ empty.remove(); }
+  });
+  var tb=document.querySelector('.board-total b');
+  if(tb) tb.textContent=document.querySelectorAll('#board .bcard').length;
+}
+var _drag=null;
+document.addEventListener('dragstart',function(e){
+  var c=e.target.closest?e.target.closest('.bcard'):null; if(!c) return;
+  _drag=c; c.classList.add('dragging');
+  e.dataTransfer.effectAllowed='move'; e.dataTransfer.setData('text/plain', c.dataset.i);
+});
+document.addEventListener('dragend',function(){ if(_drag){_drag.classList.remove('dragging'); _drag=null;} });
+function trackOver(e){ e.preventDefault(); e.currentTarget.classList.add('dragover'); }
+function trackLeave(e){ e.currentTarget.classList.remove('dragover'); }
+function trackDrop(e){
+  e.preventDefault(); var col=e.currentTarget; col.classList.remove('dragover');
+  if(!_drag) return;
+  col.querySelector('.bcol-body').appendChild(_drag);
+  var f=new FormData(); f.append('id',_drag.dataset.i); f.append('col',col.dataset.col);
+  fetch('/track',{method:'POST',body:f}); _boardCounts();
+}
+function trackRemove(el){
+  var card=el.closest('.bcard'), f=new FormData();
+  f.append('id',card.dataset.i); f.append('col','off');
+  fetch('/track',{method:'POST',body:f}).then(function(){ card.remove(); _boardCounts(); });
+}
+function boardFilter(el){
+  var q=el.value.toLowerCase();
+  document.querySelectorAll('#board .bcard').forEach(function(c){
+    c.style.display=c.textContent.toLowerCase().indexOf(q)>=0?'':'none';
   });
 }
 </script>"""
@@ -1222,6 +1308,106 @@ def _highlight_quotes(desc: str, marks: list) -> str:
     return safe.replace("\n", "<br>")
 
 
+_TRACK_COLS = [("saved", "Saved"), ("applied", "Applied"),
+               ("interviewing", "Interviewing"), ("offer", "Offer")]
+
+# Jobs that live on the board: explicitly tracked, applied, or auto-saved from
+# the apply-ready pool. Removed cards (track_status='off') and closed/skipped drop out.
+_BOARD_WHERE = (
+    "((status = 'applied' OR track_status IN ('saved','applied','interviewing','offer') "
+    "  OR apply_ok = 1 OR pinned = 1) "
+    " AND status NOT IN ('closed','skipped') "
+    " AND COALESCE(track_status,'') != 'off')"
+)
+
+
+def _board_col(r) -> str:
+    """Which lane a job sits in — an explicit track_status always wins over the
+    pipeline's 'applied' status so dragging a card sticks."""
+    ts = r["track_status"]
+    if ts in ("saved", "applied", "interviewing", "offer"):
+        return ts
+    return "applied" if r["status"] == "applied" else "saved"
+
+
+def _board_card(r, loved: set) -> str:
+    company = r["company"] or "—"
+    loc = "Remote" if r["remote"] else (r["location"] or "")
+    url = r["url"] or "#"
+    con = " on" if company in loved else ""
+    title = _e(r["title"] or "Untitled role")
+    role = (f"<a class=bc-role href='{_e(url)}' target=_blank rel=noopener>{title}</a>"
+            if url != "#" else f"<span class=bc-role>{title}</span>")
+    locline = f"<div class=bc-loc><span>&#9679;</span> {_e(loc)}</div>" if loc else ""
+    return (
+        f"<div class=bcard draggable=true data-i='{r['id']}'>"
+        f"<div class=bc-top>{role}"
+        f"<span class='love{con}' data-c=\"{_e(company)}\" onclick='love(this)' "
+        f"title='love this company'>&#9829;</span></div>"
+        f"<div class=bc-company>{_e(company)}</div>"
+        f"{locline}"
+        f"<span class=bc-x title='Remove from tracker' "
+        f"onclick='trackRemove(this)'>&times;</span>"
+        f"</div>"
+    )
+
+
+def _tracker_board() -> str:
+    from .core.favorites import loved_companies
+    loved = loved_companies()
+    buckets = {c: [] for c, _ in _TRACK_COLS}
+    with db.connect() as conn:
+        rows = conn.execute(
+            f"SELECT * FROM jobs WHERE {_BOARD_WHERE} "
+            "ORDER BY COALESCE(analyzed_at, fetched_at) DESC").fetchall()
+    for r in rows:
+        buckets[_board_col(r)].append(r)
+    total = len(rows)
+
+    cols = ""
+    for cid, label in _TRACK_COLS:
+        cards = buckets[cid]
+        body = ("".join(_board_card(r, loved) for r in cards) if cards
+                else "<div class=bcol-empty>Drop a job here</div>")
+        cols += (
+            f"<div class=bcol data-col='{cid}' ondrop='trackDrop(event)' "
+            f"ondragover='trackOver(event)' ondragleave='trackLeave(event)'>"
+            f"<div class=bcol-head><span class=bcol-name>{label}</span>"
+            f"<span class=bcol-count>{len(cards)}</span></div>"
+            f"<div class=bcol-body>{body}</div></div>"
+        )
+
+    head = (
+        "<div class=board-bar>"
+        f"<div class=board-total><b>{total}</b> TOTAL JOBS</div>"
+        "<div class=board-tools>"
+        "<input class=bsearch id=bsearch type=text placeholder='Search roles or companies…' "
+        "oninput='boardFilter(this)'>"
+        "<label for=addtoggle class='tool-btn' style='cursor:pointer'>&#43;&nbsp; Add Application</label>"
+        "</div></div>"
+    )
+    return f"{head}<div class=board id=board>{cols}</div>"
+
+
+def _add_modal() -> str:
+    opts = "".join(f"<option value='{c}'>{l}</option>" for c, l in _TRACK_COLS)
+    return (
+        "<input type=checkbox id=addtoggle hidden>"
+        "<div class='overlay add-ov'><div class=modal>"
+        "<label for=addtoggle class=modal-close>&times;</label>"
+        "<div class=modal-h>Add an application to the tracker</div>"
+        "<form class=col method=post action='/track-add'>"
+        "<input class=url type=text name=title placeholder='Role / title' required>"
+        "<input class=url type=text name=company placeholder='Company' required>"
+        "<input class=url type=text name=location placeholder='Location (optional)'>"
+        "<input class=url type=text name=url placeholder='Job link (optional)'>"
+        f"<select name=col class=url style='cursor:pointer'>{opts}</select>"
+        "<div class=row><button type=submit>Add to tracker</button>"
+        "<span class=hint>added as a manual card — drag it between columns anytime</span></div>"
+        "</form></div></div>"
+    )
+
+
 def _render(tier: str, min_score: int, fresh: bool, sort: str,
             preference: str = "", notice: str = "", view: str = "",
             min_fit: int = 50, page: int = 0, ctype: str = "",
@@ -1231,6 +1417,15 @@ def _render(tier: str, min_score: int, fresh: bool, sort: str,
     if not preference:
         preference = load_preference()
     loved = loved_companies()
+
+    if view == "tracker":
+        with db.connect() as _c:
+            total = _c.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
+            fresh_n = _c.execute("SELECT COUNT(*) FROM jobs WHERE "
+                                 "fetched_at >= datetime('now','-24 hours')").fetchone()[0]
+        notice_html = f"<div class=notice>{notice}</div>" if notice else ""
+        tabs = _tabs("tracker", {"view": "tracker"})
+        return _page(_header(total, fresh_n) + notice_html + tabs + _tracker_board())
 
     call_runs, cur_run = [], 0
     fetch_runs, cur_fetch, in_fetch = [], 0, False
@@ -1561,6 +1756,47 @@ def restore_job_route(id: int = Form(...)):
     with db.connect() as conn:
         conn.execute("UPDATE jobs SET status = 'new' WHERE id = ? AND status = 'skipped'", [id])
     return JSONResponse({"ok": True})
+
+
+@app.post("/track")
+def track_route(id: int = Form(...), col: str = Form(...)):
+    """Move a card between tracker lanes (or 'off' to remove it). Dropping into
+    Applied also flips the pipeline status + logs a submitted application, so the
+    board stays consistent with the rest of the app."""
+    if col not in {"saved", "applied", "interviewing", "offer", "off"}:
+        return JSONResponse({"ok": False, "error": "bad column"})
+    with db.connect() as conn:
+        conn.execute("UPDATE jobs SET track_status = ? WHERE id = ?", [col, id])
+        if col == "applied":
+            conn.execute("UPDATE jobs SET status = 'applied' WHERE id = ?", [id])
+            n = conn.execute("UPDATE applications SET status = 'submitted', "
+                             "submitted_at = CURRENT_TIMESTAMP "
+                             "WHERE job_id = ? AND status = 'draft'", [id]).rowcount
+            has = conn.execute("SELECT 1 FROM applications WHERE job_id = ? "
+                               "AND status = 'submitted'", [id]).fetchone()
+            if not n and not has:
+                conn.execute("INSERT INTO applications (job_id, status, submitted_at) "
+                             "VALUES (?, 'submitted', CURRENT_TIMESTAMP)", [id])
+    return JSONResponse({"ok": True})
+
+
+@app.post("/track-add", response_class=HTMLResponse)
+def track_add_route(title: str = Form(...), company: str = Form(...),
+                    location: str = Form(""), url: str = Form(""),
+                    col: str = Form("saved")):
+    """Manually add an application card to the tracker."""
+    import uuid
+    if col not in {"saved", "applied", "interviewing", "offer"}:
+        col = "saved"
+    status = "applied" if col == "applied" else "new"
+    with db.connect() as conn:
+        conn.execute(
+            "INSERT INTO jobs (source, source_id, company, title, location, url, "
+            "status, track_status) VALUES ('manual', ?, ?, ?, ?, ?, ?, ?)",
+            [uuid.uuid4().hex, company.strip(), title.strip(),
+             location.strip() or None, url.strip() or None, status, col])
+    return _render("", 40, False, "", view="tracker",
+                   notice=f"Added <b>{_e(title)}</b> to your tracker.")
 
 
 @app.post("/add", response_class=HTMLResponse)

@@ -62,7 +62,10 @@ def connect():
         for col in ("fit INTEGER", "company_type TEXT", "afit INTEGER",
                     "apply_ok INTEGER", "analysis TEXT", "analyzed_at TEXT",
                     "analysis_run INTEGER", "fetch_run INTEGER", "checked_at TEXT",
-                    "pinned INTEGER DEFAULT 0"):                # migrate older DBs
+                    "pinned INTEGER DEFAULT 0",
+                    "track_status TEXT"):                       # Kanban tracker lane
+                                                                # (saved|applied|interviewing|offer|off)
+                                                                # migrate older DBs
             try:
                 conn.execute(f"ALTER TABLE jobs ADD COLUMN {col}")
             except sqlite3.OperationalError:
