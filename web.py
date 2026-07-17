@@ -336,6 +336,7 @@ td a:hover{
 #preftoggle:checked ~ .pref-ov{display:flex}
 #ctxtoggle:checked ~ .ctx-ov{display:flex}
 #addtoggle:checked ~ .add-ov{display:flex}
+#prompttoggle:checked ~ .prompt-ov{display:flex}
 .chips{display:flex;flex-wrap:wrap;gap:7px}
 .chip{
   background:var(--panel2);border:1px solid var(--line2);
@@ -495,6 +496,23 @@ mark.hl-gate.flash{outline:2px solid var(--red);animation:qflash 1.4s ease}
 .rbtn.done:hover{background:rgba(79,175,120,.12)}
 .rbtn.del{color:var(--faint);margin-left:auto}
 .rbtn.del:hover{border-color:rgba(217,111,111,.5);color:var(--red);background:rgba(217,111,111,.08)}
+.rbtn.nofit{color:var(--faint);margin-left:auto}
+.rbtn.nofit:hover{border-color:rgba(217,111,111,.5);color:var(--red);background:rgba(217,111,111,.08)}
+.dislikebox{display:none;margin-top:12px;flex-direction:column;gap:9px}
+.dislikebox.open{display:flex}
+.dismsg{width:100%;background:var(--panel);border:1px solid var(--line2);border-radius:9px;
+  padding:10px 12px;font-size:13px;color:var(--text);resize:vertical;font-family:inherit}
+.dismsg:focus{outline:none;border-color:var(--red)}
+.dislikerow{display:flex;align-items:center;gap:9px;flex-wrap:wrap}
+.dislikehint{font-size:11.5px;color:var(--faint)}
+.lesson-list{display:flex;flex-direction:column;gap:8px}
+.lesson-row{display:flex;align-items:flex-start;gap:12px;background:var(--panel2);
+  border:1px solid var(--line);border-radius:9px;padding:10px 12px}
+.lesson-txt{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.lesson-job{font-size:11.5px;font-weight:600;color:var(--muted)}
+.lesson-reason{font-size:13px;color:var(--text);line-height:1.45}
+.lesson-x{cursor:pointer;color:var(--faint);font-size:17px;line-height:1;padding:0 3px;flex-shrink:0}
+.lesson-x:hover{color:var(--red)}
 .rev-badge.applied{color:var(--green);background:rgba(79,175,120,.14);border-color:rgba(79,175,120,.4)}
 .rev-card.applied{opacity:.5}
 .rev-card.applied .rev-actions{display:none}
@@ -794,7 +812,8 @@ def _pager(page: int, has_next: bool, base: dict) -> str:
 def _toggles() -> str:
     return ("<input type=checkbox id=favtoggle hidden>"
             "<input type=checkbox id=preftoggle hidden>"
-            "<input type=checkbox id=ctxtoggle hidden>")
+            "<input type=checkbox id=ctxtoggle hidden>"
+            "<input type=checkbox id=prompttoggle hidden>")
 
 
 def _toolbar() -> str:
@@ -881,13 +900,44 @@ def _pref_modal() -> str:
     )
 
 
+def _prompt_modal() -> str:
+    """Read-only view of the prompt the next call will send, with the learned
+    lessons baked in — plus a list to prune individual lessons."""
+    from .core.favorites import load_lessons
+    from .match.analyze import effective_prompt
+    lessons = load_lessons()
+    if lessons:
+        rows = "".join(
+            "<div class=lesson-row><div class=lesson-txt>"
+            f"<span class=lesson-job>{_e(l.get('title') or '—')}"
+            + (f" &middot; {_e(l['company'])}" if l.get("company") else "")
+            + f"</span><span class=lesson-reason>{_e(l.get('reason', ''))}</span></div>"
+            f"<span class=lesson-x data-l='{l.get('id')}' onclick='removeLesson(this)' "
+            "title='remove this lesson'>&times;</span></div>"
+            for l in reversed(lessons))
+        lessons_html = f"<div class=lesson-list>{rows}</div>"
+    else:
+        lessons_html = ("<div class=hint>No lessons yet — hit &ldquo;&#128078; Not a fit&rdquo; "
+                        "on an apply-ready card and say why. Your reason lands here and in "
+                        "the prompt below.</div>")
+    return (
+        "<div class='overlay prompt-ov'><div class=modal>"
+        "<label for=prompttoggle class=modal-close>&times;</label>"
+        f"<div class=modal-h>Lessons the next call applies &nbsp;&middot;&nbsp; {len(lessons)}</div>"
+        f"{lessons_html}"
+        "<div class=modal-h style='margin-top:22px'>Effective prompt &mdash; sent on the next call</div>"
+        f"<pre class=ctxpre>{_e(effective_prompt())}</pre>"
+        "</div></div>"
+    )
+
+
 def _page(body: str) -> str:
     return (f"<!doctype html><html lang=en><head><meta charset=utf-8>"
             f"<meta name=viewport content='width=device-width,initial-scale=1'>"
             "<script>(function(){var t=localStorage.getItem('theme');"
             "if(t)document.documentElement.dataset.theme=t;})();</script>"
             f"<title>jobhunt</title><style>{CSS}</style></head>"
-            f"<body>{_toggles()}{_fav_modal()}{_pref_modal()}{_context_modal()}{_add_modal()}"
+            f"<body>{_toggles()}{_fav_modal()}{_pref_modal()}{_context_modal()}{_add_modal()}{_prompt_modal()}"
             f"<div class=wrap>{body}</div>{_JS}</body></html>")
 
 
@@ -993,6 +1043,35 @@ function loveJob(el){     // rescue a rejected job into apply-ready
   var f=new FormData(); f.append('id', el.dataset.i);
   var card=el.closest('.rev-card');
   fetch('/love-job',{method:'POST',body:f}).then(function(){ _slideOut(card); });
+}
+function dislikeReveal(el){   // toggle the "why isn't this a fit" note box
+  var card=el.closest('.rev-card'), box=card.querySelector('.dislikebox');
+  if(box.classList.toggle('open')){ var t=box.querySelector('.dismsg'); if(t) t.focus(); }
+}
+function dislikeSubmit(el){   // record the reason (→ prompt) + remove from apply-ready
+  var card=el.closest('.rev-card'), ta=card.querySelector('.dismsg');
+  var msg=ta.value.trim(); if(!msg){ ta.focus(); return; }
+  var f=new FormData(); f.append('id', card.querySelector('.dislikebox').dataset.i);
+  f.append('reason', msg);
+  fetch('/dislike',{method:'POST',body:f}).then(function(r){return r.json();})
+    .then(function(d){ _slideOut(card);
+      _dislikeToast('Removed &amp; learned — future calls will avoid this.',
+                    card.querySelector('.dislikebox').dataset.i, d.lid); });
+}
+function _dislikeToast(msg, id, lid){
+  var old=document.querySelector('.toast'); if(old) old.remove();
+  var t=document.createElement('div'); t.className='toast';
+  t.appendChild(document.createTextNode('Removed & learned — future calls will avoid this. '));
+  var b=document.createElement('button'); b.className='toast-undo'; b.textContent='Undo';
+  t.appendChild(b); document.body.appendChild(t);
+  var to=setTimeout(function(){t.classList.add('hide');setTimeout(function(){t.remove();},400);},7000);
+  b.onclick=function(){ clearTimeout(to);
+    var f=new FormData(); f.append('id', id); f.append('lid', lid);
+    fetch('/dislike-undo',{method:'POST',body:f}).then(function(){ location.reload(); }); };
+}
+function removeLesson(el){    // prune a single lesson from the See-prompt modal
+  var row=el.closest('.lesson-row'), f=new FormData(); f.append('lid', el.dataset.l);
+  fetch('/lesson-remove',{method:'POST',body:f}).then(function(){ row.remove(); });
 }
 function _setThemeIcon(){
   var b=document.getElementById('themebtn');
@@ -1284,7 +1363,18 @@ def _review_cards(rows, loved: set, view: str) -> str:
                 f"<button class='rbtn fill' data-i='{r['id']}' onclick='applyfill(this)'>"
                 f"Fill application &#8599;</button>"
                 f"<button class='rbtn done' data-i='{r['id']}' onclick='markApplied(this)'>"
-                f"Mark applied</button></div>")
+                f"Mark applied</button>"
+                f"<button class='rbtn nofit' onclick='dislikeReveal(this)'>&#128078; Not a fit</button>"
+                f"</div>"
+                f"<div class=dislikebox data-i='{r['id']}'>"
+                f"<textarea class=dismsg rows=2 placeholder=\"Why isn't this a good match? "
+                f"e.g. &#8216;too senior&#8217;, &#8216;needs security clearance&#8217;, "
+                f"&#8216;on-site only&#8217; — future calls learn from this\"></textarea>"
+                f"<div class=dislikerow>"
+                f"<button class='rbtn done' onclick='dislikeSubmit(this)'>Save &amp; remove</button>"
+                f"<button class=rbtn onclick='dislikeReveal(this)'>Cancel</button>"
+                f"<span class=dislikehint>teaches the analyze prompt &#8212; won&#8217;t "
+                f"repeat this mistake</span></div></div>")
 
         card_cls = "rev-card applied" if applied else "rev-card"
         cards.append(
@@ -1764,6 +1854,36 @@ def restore_job_route(id: int = Form(...)):
     return JSONResponse({"ok": True})
 
 
+@app.post("/dislike")
+def dislike_route(id: int = Form(...), reason: str = Form("")):
+    """Record WHY an apply-ready pick was wrong (→ fed into the analyze prompt) and
+    remove it from the apply-ready list."""
+    from .core.favorites import add_lesson
+    with db.connect() as conn:
+        r = conn.execute("SELECT title, company FROM jobs WHERE id = ?", [id]).fetchone()
+        lid = add_lesson(r["title"] if r else "", r["company"] if r else "", reason)
+        conn.execute("UPDATE jobs SET status = 'skipped' WHERE id = ? AND status != 'applied'", [id])
+    return JSONResponse({"ok": True, "lid": lid})
+
+
+@app.post("/dislike-undo")
+def dislike_undo_route(id: int = Form(...), lid: int = Form(0)):
+    """Undo a dislike — restore the job and drop the lesson it created."""
+    from .core.favorites import remove_lesson
+    with db.connect() as conn:
+        conn.execute("UPDATE jobs SET status = 'new' WHERE id = ? AND status = 'skipped'", [id])
+    if lid:
+        remove_lesson(lid)
+    return JSONResponse({"ok": True})
+
+
+@app.post("/lesson-remove")
+def lesson_remove_route(lid: int = Form(...)):
+    from .core.favorites import remove_lesson
+    remove_lesson(lid)
+    return JSONResponse({"ok": True})
+
+
 @app.post("/track")
 def track_route(id: int = Form(...), col: str = Form(...)):
     """Move a card between tracker lanes (or 'off' to remove it). Dropping into
@@ -1952,6 +2072,7 @@ def _flow_page(notice: str = "") -> str:
                "<form method=post action='/run-analyze' style='width:100%'>"
                f"<button id=callbtn style='width:100%'{' disabled' if running else ''}>"
                "&#9654; Run call now</button></form>"
+               "<label for=prompttoggle class=fbtn style='cursor:pointer'>See prompt &amp; lessons &rarr;</label>"
                f"{crep_block}</div>")
     ready_node = ("<div class='fnode ready'><div class=fhead><span class=fnum>4</span> Ready to apply</div>"
                   f"<div class=fbig id=pcReady>{ready}</div><div class=fdesc>vetted &amp; pinned jobs</div>"

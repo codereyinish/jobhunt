@@ -11,6 +11,8 @@ from .config import CONFIG_DIR, DATA_DIR
 FAV_PATH = CONFIG_DIR / "favorites.yaml"        # machine-managed, gitignored
 PREF_PATH = DATA_DIR / "preference.txt"         # your saved rank preference
 LOVED_PATH = DATA_DIR / "loved.json"            # ❤ companies (by name)
+LESSONS_PATH = DATA_DIR / "lessons.json"        # why you rejected past apply-ready picks
+LESSONS_CAP = 40                                # keep the prompt injection bounded
 
 
 def parse_company_url(url: str) -> dict | None:
@@ -82,6 +84,57 @@ def toggle_loved(company: str) -> bool:
     DATA_DIR.mkdir(exist_ok=True)
     LOVED_PATH.write_text(json.dumps(sorted(loved)))
     return now
+
+
+def load_lessons() -> list:
+    """Your dislikes: [{id, title, company, reason}] — reasons a past apply-ready
+    pick was wrong, fed back into the analyze prompt so calls stop repeating it."""
+    if LESSONS_PATH.exists():
+        try:
+            return json.loads(LESSONS_PATH.read_text()) or []
+        except ValueError:
+            return []
+    return []
+
+
+def _save_lessons(lessons: list) -> None:
+    DATA_DIR.mkdir(exist_ok=True)
+    LESSONS_PATH.write_text(json.dumps(lessons[-LESSONS_CAP:], indent=2))
+
+
+def add_lesson(title: str, company: str, reason: str) -> int:
+    """Record why a job shouldn't have surfaced. Returns the new lesson's id."""
+    import time
+    reason = (reason or "").strip()
+    if not reason:
+        return 0
+    lid = int(time.time() * 1000)
+    lessons = load_lessons()
+    lessons.append({"id": lid, "title": (title or "").strip(),
+                    "company": (company or "").strip(), "reason": reason})
+    _save_lessons(lessons)
+    return lid
+
+
+def remove_lesson(lid: int) -> None:
+    _save_lessons([l for l in load_lessons() if l.get("id") != lid])
+
+
+def lessons_block() -> str:
+    """The dislikes formatted for injection into the analyze prompt."""
+    lessons = load_lessons()
+    if not lessons:
+        return ""
+    lines = "\n".join(
+        f'- "{l.get("title","")}"'
+        + (f' at {l["company"]}' if l.get("company") else "")
+        + f': {l.get("reason","")}'
+        for l in lessons)
+    return (
+        "\nLESSONS FROM THE CANDIDATE — they reviewed earlier picks and explained why "
+        "these were WRONG to surface as strong matches. Treat these as hard preferences: "
+        "apply the same judgment and do NOT rate jobs highly that repeat these problems.\n"
+        f"{lines}\n")
 
 
 def load_preference() -> str:

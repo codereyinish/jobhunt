@@ -13,6 +13,7 @@ responsibilities, then judge honestly.
 CANDIDATE PROFILE:
 <<PROFILE>>
 <<RESUME>>
+<<LESSONS>>
 For EACH job return an object with:
 - id
 - company_type: yc_early | funded_startup | unicorn | public_corp | staffing_proxy | unknown
@@ -73,24 +74,42 @@ def _profile_block() -> str:
     )
 
 
-def analyze(jobs: list[dict], timeout: int = 300) -> dict[int, dict]:
-    """Deep-read each job's requirements vs the candidate's profile AND resume."""
-    if not jobs:
-        return {}
+def _assemble(jobs_block: str) -> str:
+    """Fill the editable template: profile + resume + learned lessons + jobs.
+    Shared by the real call and the 'See prompt' preview so they never drift."""
     from ..core.config import analyze_prompt
+    from ..core.favorites import lessons_block
     resume = resume_text()
     resume_block = (f"CANDIDATE RESUME (compare their real experience to each JD):\n"
                     f"{resume[:4500]}\n" if resume
                     else "(No resume provided — judge on the profile facts above.)\n")
+    tmpl = analyze_prompt()
+    lessons = lessons_block()
+    if "<<LESSONS>>" in tmpl:
+        tmpl = tmpl.replace("<<LESSONS>>", lessons)
+    elif lessons:                                # older custom prompts: inject before jobs
+        tmpl = tmpl.replace("<<JOBS>>", lessons + "\n<<JOBS>>", 1)
+    return (tmpl.replace("<<PROFILE>>", _profile_block())
+                .replace("<<RESUME>>", resume_block)
+                .replace("<<JOBS>>", jobs_block))
+
+
+def effective_prompt() -> str:
+    """The prompt a call would actually send, with a placeholder for the job batch —
+    for the 'See prompt' view so you can see your lessons baked in."""
+    return _assemble("[ …the batch of shortlisted jobs being screened is inserted here… ]")
+
+
+def analyze(jobs: list[dict], timeout: int = 300) -> dict[int, dict]:
+    """Deep-read each job's requirements vs the candidate's profile AND resume."""
+    if not jobs:
+        return {}
     blocks = "\n".join(
         f"### JOB {j['id']}\nTitle: {j.get('title', '')}\nCompany: {j.get('company', '')}\n"
         f"Location: {j.get('location', '')}\nRequirements:\n{_snippet(j.get('description', ''))}"
         for j in jobs
     )
-    prompt = (analyze_prompt()
-              .replace("<<PROFILE>>", _profile_block())
-              .replace("<<RESUME>>", resume_block)
-              .replace("<<JOBS>>", blocks))
+    prompt = _assemble(blocks)
     data = _extract_array(_run(prompt, timeout)) or []
     out: dict[int, dict] = {}
     for item in data:
