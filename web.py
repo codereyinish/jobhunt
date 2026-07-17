@@ -1008,6 +1008,18 @@ function applyfill(el){
       setTimeout(function(){el.disabled=false; el.textContent=old;}, 5000); })
     .catch(function(){ el.disabled=false; el.textContent=old; });
 }
+function _msgToast(msg){
+  var old=document.querySelector('.toast'); if(old) old.remove();
+  var t=document.createElement('div'); t.className='toast'; t.textContent=msg;
+  document.body.appendChild(t);
+  setTimeout(function(){t.classList.add('hide');setTimeout(function(){t.remove();},400);},4200);
+}
+function openApply(el){   // click the role in apply-ready → open the app's browser + panel
+  _msgToast('Opening the application in a new window with the autofill panel…');
+  fetch('/apply/'+el.dataset.i,{method:'POST'}).then(function(r){return r.json();})
+    .then(function(d){ if(!d.ok) _msgToast(d.error||'This job has no application URL.'); })
+    .catch(function(){ _msgToast('Could not open the application.'); });
+}
 function markApplied(el){
   var f=new FormData(); f.append('id', el.dataset.i);
   fetch('/applied',{method:'POST',body:f}).then(function(){
@@ -1377,12 +1389,21 @@ def _review_cards(rows, loved: set, view: str) -> str:
                 f"repeat this mistake</span></div></div>")
 
         card_cls = "rev-card applied" if applied else "rev-card"
+        # In apply-ready, clicking the role opens the application WITH the autofill
+        # panel (same as 'Fill application'). Elsewhere it's a plain link to the post.
+        if view == "apply" and not applied:
+            role_html = (f"<a class=rev-role data-i='{r['id']}' href='#' "
+                         f"onclick='openApply(this);return false;' "
+                         f"title='open the application with the autofill panel'>"
+                         f"{_e(r['title'])} &#8599;</a>")
+        else:
+            role_html = (f"<a class=rev-role href='{_e(r['url'] or '#')}' target=_blank "
+                         f"rel=noopener>{_e(r['title'])} &#8599;</a>")
         cards.append(
             f"<div class='{card_cls}'><div class=rev-head>"
             f"<span class=rev-fit>{afit}</span>{_tip(_FIT_TIP)}"
             "<div class=rev-headmain>"
-            f"<a class=rev-role href='{_e(r['url'] or '#')}' target=_blank rel=noopener>"
-            f"{_e(r['title'])} &#8599;</a>"
+            f"{role_html}"
             f"<div class=rev-sub><span class=cname{' loved' if company in loved else ''}>"
             f"{_e(company)}</span>{comp_love}"
             f"<span class=rev-meta>&middot; {_TYPE_LABEL.get(r['company_type'], '—')} "
