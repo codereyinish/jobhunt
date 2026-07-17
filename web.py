@@ -412,7 +412,12 @@ td a:hover{
   color:var(--muted)}
 .bcol-count{font-size:11px;font-weight:600;color:var(--faint);
   background:var(--panel2);border-radius:999px;padding:1px 8px;font-variant-numeric:tabular-nums}
-.bcol-body{display:flex;flex-direction:column;gap:10px;min-height:60px}
+.bcol-body{display:flex;flex-direction:column;gap:10px;min-height:60px;
+  max-height:560px;overflow-y:auto;overflow-x:hidden;padding-right:4px}
+.bcol-body::-webkit-scrollbar{width:7px}
+.bcol-body::-webkit-scrollbar-thumb{background:var(--line2);border-radius:999px}
+.bcol-body::-webkit-scrollbar-track{background:transparent}
+.bcol-body{scrollbar-width:thin;scrollbar-color:var(--line2) transparent}
 .bcol-empty{color:var(--line2);font-size:12px;text-align:center;padding:22px 0;
   border:1.5px dashed var(--line);border-radius:10px}
 .bcard{background:var(--panel2);border:1px solid var(--line2);border-radius:11px;
