@@ -562,6 +562,11 @@ mark.hl-gate.flash{outline:2px solid var(--red);animation:qflash 1.4s ease}
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .fpending{font-size:12px;font-weight:560;color:var(--faint);margin:2px 0 12px}
 .fpending.on{color:var(--accent)}
+.callstatus{display:none;font-size:12.5px;font-weight:600;color:var(--accent);
+  margin:2px 0 10px;padding:8px 11px;border-radius:8px;background:var(--accent-soft);
+  border:1px solid rgba(20,217,196,.28)}
+.callstatus.on{display:block}
+#callbtn:disabled{opacity:.45;cursor:default}
 .freparrow{color:var(--accent);opacity:0;transition:opacity .12s;font-weight:600}
 .freprow:hover .freparrow{opacity:1}
 .kwlist{display:flex;flex-direction:column;gap:6px;width:100%;
@@ -1655,6 +1660,8 @@ def _flow_page(notice: str = "") -> str:
         fetch_report = _fetch_report(conn)
         call_report = _call_report(conn)
         pending = conn.execute(f"SELECT COUNT(*) FROM jobs WHERE {_PENDING_SQL}").fetchone()[0]
+    from .core.config import analyze_running
+    running = analyze_running()
     top = ("<div class=flowtop><a href='/' class=brand>jobhunt</a>"
            "<a class=tool-btn href='/'>&larr; jobs</a></div>")
     banner = f"<div class=result style='margin-bottom:18px'>{notice}</div>" if notice else ""
@@ -1693,11 +1700,16 @@ def _flow_page(notice: str = "") -> str:
     pend_cls = "fpending on" if pending else "fpending"
     pend_txt = ("&#9889; <span id=pcPending>%d</span> jobs waiting &mdash; worth a call" % pending
                 if pending else "&#10003; <span id=pcPending>0</span> &mdash; shortlist all screened")
+    run_status = ("<div id=callstatus class='callstatus on'>&#9203; Call running… "
+                  "keeps going if you leave</div>" if running
+                  else "<div id=callstatus class=callstatus>&#9203; Call running…</div>")
     an_node = ("<div class=fnode><div class=fhead><span class=fnum>3</span> Analyze &middot; JD reader</div>"
                f"<div class=fbig id=pcAnalyzed>{analyzed}</div><div class=fdesc>read by Claude &middot; <span id=pcRuns>{runs}</span> call(s)</div>"
                f"<div class='{pend_cls}'>{pend_txt}</div>"
+               f"{run_status}"
                "<form method=post action='/run-analyze' style='width:100%'>"
-               "<button style='width:100%'>&#9654; Run call now</button></form>"
+               f"<button id=callbtn style='width:100%'{' disabled' if running else ''}>"
+               "&#9654; Run call now</button></form>"
                f"{crep_block}</div>")
     ready_node = ("<div class='fnode ready'><div class=fhead><span class=fnum>4</span> Ready to apply</div>"
                   f"<div class=fbig id=pcReady>{ready}</div><div class=fdesc>vetted &amp; pinned jobs</div>"
@@ -1708,7 +1720,12 @@ def _flow_page(notice: str = "") -> str:
     poll = ("<script>setInterval(function(){fetch('/counts').then(function(r){return r.json();})"
             ".then(function(d){[['pcTotal',d.total],['pcAnalyzed',d.analyzed],['pcReady',d.ready],"
             "['pcRuns',d.runs],['pcPending',d.pending]].forEach(function(p){var e=document.getElementById(p[0]);"
-            "if(e&&e.textContent!=String(p[1]))e.textContent=p[1];});}).catch(function(){});},4000);</script>")
+            "if(e&&e.textContent!=String(p[1]))e.textContent=p[1];});"
+            "var cs=document.getElementById('callstatus'),cb=document.getElementById('callbtn');"
+            "if(cs)cs.className='callstatus'+(d.running?' on':'');"
+            "if(cb)cb.disabled=d.running;"
+            "if(cs&&d.running)cs.innerHTML='&#9203; Call running… '+d.elapsed+'s — keeps going if you leave';"
+            "}).catch(function(){});},4000);</script>")
     return _page(top + banner + flow + poll)
 
 
@@ -1794,8 +1811,11 @@ def counts_route():
         ready = conn.execute("SELECT COUNT(*) FROM jobs WHERE (apply_ok = 1 OR pinned = 1) AND status != 'closed'").fetchone()[0]
         runs = conn.execute("SELECT COALESCE(MAX(analysis_run), 0) FROM jobs").fetchone()[0]
         pending = conn.execute(f"SELECT COUNT(*) FROM jobs WHERE {_PENDING_SQL}").fetchone()[0]
+    from .core.config import analyze_running
+    run = analyze_running()
     return JSONResponse({"total": total, "analyzed": analyzed, "ready": ready,
-                         "runs": runs, "pending": pending})
+                         "runs": runs, "pending": pending,
+                         "running": bool(run), "elapsed": run["elapsed"] if run else 0})
 
 
 @app.get("/flow", response_class=HTMLResponse)
@@ -1811,8 +1831,11 @@ def run_fetch_route():
 
 @app.post("/run-analyze", response_class=HTMLResponse)
 def run_analyze_route():
+    from .core.config import analyze_running
+    if analyze_running():
+        return _flow_page("A call is already running — no need to start another.")
     _bg(["analyze"])
-    return _flow_page("Analyze call started — refresh in ~1–2 min; ‘ready to apply’ will fill in.")
+    return _flow_page("Analyze call started — it keeps running even if you leave this page.")
 
 
 @app.post("/keyword-add", response_class=HTMLResponse)

@@ -9,6 +9,53 @@ ROOT = Path(__file__).resolve().parents[1]
 CONFIG_DIR = ROOT / "config"
 DATA_DIR = ROOT / "data"
 
+_ANALYZE_LOCK = DATA_DIR / "analyze.lock"
+
+
+def analyze_lock_acquire() -> None:
+    import json
+    import os
+    import time
+    DATA_DIR.mkdir(exist_ok=True)
+    _ANALYZE_LOCK.write_text(json.dumps({"pid": os.getpid(), "started": time.time()}))
+
+
+def analyze_lock_release() -> None:
+    try:
+        _ANALYZE_LOCK.unlink()
+    except OSError:
+        pass
+
+
+def analyze_running() -> dict | None:
+    """{'elapsed': secs} if a call is genuinely running now, else None. Clears a
+    stale lock (dead process or >20 min old) so a crash never blocks future calls."""
+    import json
+    import os
+    import time
+    if not _ANALYZE_LOCK.exists():
+        return None
+    try:
+        d = json.loads(_ANALYZE_LOCK.read_text())
+    except (OSError, ValueError):
+        return None
+    pid, started = d.get("pid"), d.get("started", 0)
+    alive = False
+    if pid:
+        try:
+            os.kill(int(pid), 0)
+            alive = True
+        except ProcessLookupError:
+            alive = False
+        except PermissionError:
+            alive = True
+        except (OSError, ValueError):
+            alive = False
+    if not alive or (time.time() - started) > 1200:
+        analyze_lock_release()
+        return None
+    return {"elapsed": int(time.time() - started)}
+
 
 @lru_cache
 def _load(name: str) -> dict:

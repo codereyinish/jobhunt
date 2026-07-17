@@ -235,13 +235,25 @@ def cmd_analyze(args):
     """Deep-read the shortlist's descriptions vs your profile, via claude."""
     import json
 
+    from .core.config import analyze_lock_acquire, analyze_lock_release, analyze_running
     from .match.analyze import analyze
     from .match.llm import claude_available
 
     if not claude_available():
         print("The `claude` CLI isn't on PATH — install Claude Code to use analyze.")
         return
+    if analyze_running():
+        print("A call is already running — skipping this one.")
+        return
 
+    analyze_lock_acquire()
+    try:
+        _run_analyze(args, analyze, json)
+    finally:
+        analyze_lock_release()
+
+
+def _run_analyze(args, analyze, json):
     where = "score >= ?" if args.force else "score >= ? AND afit IS NULL"
     with db.connect() as conn:
         rows = conn.execute(
