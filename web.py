@@ -1330,6 +1330,25 @@ def _table(rows, fitcol, loved: set, show_why: bool = False, base: dict | None =
     return search + head + "".join(body) + "</tbody></table>"
 
 
+# Apply-ready hides only the near-hopeless (realistic interview odds below this)
+# unless you pinned the job. Kept low on purpose — deep-read odds run low for a
+# new grad, so a high floor would gut the list. Bump/lower to taste.
+_APPLY_FIT_FLOOR = 10
+
+
+def _gettability(r, ndup: int) -> int:
+    """Rank apply-ready by how realistically gettable a role is, not just raw fit:
+    reward early-stage companies, penalize giant/competitive ones and roles mass-
+    posted across many cities (high-volume, low-signal)."""
+    score = r["afit"] or 0
+    ct = r["company_type"] or ""
+    if ct in ("funded_startup", "yc_early"):
+        score += 15
+    elif ct in ("unicorn", "public_corp"):
+        score -= 10
+    return score - min(ndup * 2, 12)
+
+
 def _dedupe_roles(rows):
     """Collapse the same role reposted across locations (same company + title) into
     one card — keeps the first (highest-fit, since rows arrive fit-ordered) and
@@ -1581,13 +1600,16 @@ def _render(tier: str, min_score: int, fresh: bool, sort: str,
                 "AND status != 'closed' ORDER BY analysis_run DESC").fetchall()]
         cur_run = run if run in call_runs else 0
         if view == "apply":
-            # 'skipped' = you unloved it out of apply-ready
-            base_where = "(apply_ok = 1 OR pinned = 1) AND status NOT IN ('closed','skipped')"
+            # 'skipped' = you unloved it out of apply-ready. Hide competitive long-shots
+            # (deep-read fit below the floor) unless you pinned the job yourself.
+            base_where = ("(apply_ok = 1 OR pinned = 1) AND status NOT IN ('closed','skipped') "
+                          "AND (pinned = 1 OR afit >= ?)")
+            base_p = [_APPLY_FIT_FLOOR]
         else:
             # pinned/loved-back jobs leave the rejected list
             base_where = ("analysis IS NOT NULL AND apply_ok = 0 AND pinned = 0 "
                           "AND status NOT IN ('closed','skipped')")
-        base_p = []
+            base_p = []
         if cur_run:
             base_where += " AND analysis_run = ?"; base_p.append(cur_run)
         order = (" ORDER BY afit IS NULL, afit ASC" if sort == "afit_asc"
@@ -1639,6 +1661,10 @@ def _render(tier: str, min_score: int, fresh: bool, sort: str,
     dupes = {}
     if card_view:                                        # collapse same role across locations
         fetched, dupes = _dedupe_roles(fetched)
+        if view == "apply" and sort != "afit_asc":
+            # Surface the realistically-gettable roles first: early-stage + higher
+            # fit rise; giant/competitive + mass-posted sink (but stay visible).
+            fetched.sort(key=lambda r: -_gettability(r, len(dupes.get(r["id"], []))))
         has_next = len(fetched) > (page + 1) * _PAGE
         rows = fetched[page * _PAGE:(page + 1) * _PAGE]
     else:
