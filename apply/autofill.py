@@ -324,16 +324,22 @@ def _cover_letter(job: dict, timeout: int = 180) -> str:
         return ""
 
 
-def _build_cover_docx(job: dict, body: str) -> str:
-    """Assemble a .docx cover letter matching the candidate's format: name header,
-    contact line, date, recipient + Re line, then the letter body. Returns the path."""
+def _build_cover_pdf(job: dict, body: str) -> str:
+    """Render an EPHEMERAL PDF cover letter (temp file, not saved to the app) in the
+    candidate's format: name header, contact line, date, recipient + Re line, body.
+    Returns the temp path — the caller is responsible for cleanup."""
     import datetime
+    import html
     import re as _re
+    import tempfile
 
-    from docx import Document
-    from docx.shared import Pt
+    from reportlab.lib.enums import TA_LEFT
+    from reportlab.lib.pagesizes import LETTER
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib.units import inch
+    from reportlab.platypus import Paragraph, SimpleDocTemplate, Spacer
 
-    from ..core.config import DATA_DIR, profile
+    from ..core.config import profile
     p = profile()
     name = p.get("name", "") or "Applicant"
     contact = "  |  ".join(x for x in [
@@ -342,45 +348,41 @@ def _build_cover_docx(job: dict, body: str) -> str:
         (p.get("github", "") or "").replace("https://", "").replace("http://", ""),
     ] if x)
 
-    doc = Document()
-    hdr = doc.add_paragraph()
-    run = hdr.add_run(name); run.bold = True; run.font.size = Pt(16)
-    doc.add_paragraph(contact).runs[0].font.size = Pt(9)
-    doc.add_paragraph()
-    doc.add_paragraph(datetime.date.today().strftime("%B %-d, %Y"))
-    doc.add_paragraph()
-    doc.add_paragraph("Hiring Team")
+    name_s = ParagraphStyle("name", fontName="Helvetica-Bold", fontSize=16, leading=20)
+    contact_s = ParagraphStyle("contact", fontName="Helvetica", fontSize=9, leading=13,
+                               textColor="#444444")
+    body_s = ParagraphStyle("body", fontName="Helvetica", fontSize=10.5, leading=15.5,
+                            alignment=TA_LEFT, spaceAfter=10)
+    plain_s = ParagraphStyle("plain", fontName="Helvetica", fontSize=10.5, leading=15)
+    re_s = ParagraphStyle("re", fontName="Helvetica-Bold", fontSize=10.5, leading=15)
+
+    def esc(t):
+        return html.escape(t or "")
+
+    flow = [Paragraph(esc(name), name_s), Paragraph(esc(contact), contact_s), Spacer(1, 14),
+            Paragraph(datetime.date.today().strftime("%B %d, %Y").replace(" 0", " "), plain_s),
+            Spacer(1, 12), Paragraph("Hiring Team", plain_s)]
     if job.get("company"):
-        doc.add_paragraph(job["company"])
+        flow.append(Paragraph(esc(job["company"]), plain_s))
     if job.get("title"):
-        re_p = doc.add_paragraph(); re_p.add_run(f"Re: {job['title']}").bold = True
-    doc.add_paragraph()
+        flow.append(Paragraph(f"Re: {esc(job['title'])}", re_s))
+    flow.append(Spacer(1, 14))
     for line in (body or "").split("\n"):
         line = line.strip()
         if line:
-            doc.add_paragraph(line)
+            flow.append(Paragraph(esc(line), body_s))
 
-    out_dir = DATA_DIR / "cover_letters"
-    out_dir.mkdir(parents=True, exist_ok=True)
-    safe = _re.sub(r"[^A-Za-z0-9]+", "_", f"{name}_Cover_Letter_{job.get('company','')}").strip("_")
-    path = str(out_dir / f"{safe}.docx")
-    doc.save(path)
+    fd, path = tempfile.mkstemp(prefix="cover_", suffix=".pdf")
+    import os as _os
+    _os.close(fd)
+    SimpleDocTemplate(path, pagesize=LETTER, topMargin=0.9 * inch, bottomMargin=0.9 * inch,
+                      leftMargin=1.0 * inch, rightMargin=1.0 * inch,
+                      title=f"Cover Letter — {job.get('company', '')}").build(flow)
     return path
 
 
-def _open_file(path: str) -> None:
-    import subprocess
-    import sys
-    try:
-        if sys.platform == "darwin":
-            subprocess.Popen(["open", path])
-        elif sys.platform.startswith("win"):
-            import os
-            os.startfile(path)                       # type: ignore[attr-defined]
-        else:
-            subprocess.Popen(["xdg-open", path])
-    except Exception:
-        pass
+# file-upload fields we'll attach the cover letter to, best first (never the resume-only field)
+_UPLOAD_KW = ["cover", "additional", "attachment", "supporting", "document", "\\bcv\\b", "upload"]
 
 
 # Open-ended questions we CAN draft (essays), and ones we must never AI-answer
@@ -548,7 +550,10 @@ _PANEL_JS = r"""(data) => {
           <button id="jh-copy" class="jh-mini">Copy</button>
           <button id="jh-insert" class="jh-mini">Insert into form</button>
         </div>
-        <button id="jh-docx" class="jh-btn jh-outline" style="margin-top:8px">&#128196; Save &amp; open .docx</button>
+        <div class="jh-row" style="margin-top:8px">
+          <button id="jh-pdf" class="jh-mini">&#128196; View as PDF</button>
+          <button id="jh-attach" class="jh-mini">&#128206; Attach to application</button>
+        </div>
       </div>
       <div class="jh-sep"></div>
       <div class="jh-label">Application questions</div>
@@ -597,11 +602,15 @@ _PANEL_JS = r"""(data) => {
     const ok = await window.jhInsertCover($('#jh-covertext').value);
     $('#jh-insert').textContent = ok ? 'Inserted ✓' : 'No field on page';
     setTimeout(() => $('#jh-insert').textContent = 'Insert into form', 1800); };
-  $('#jh-docx').onclick = async (e) => {
-    const b = e.currentTarget, o = b.innerHTML; b.disabled = true; b.textContent = 'Building .docx…';
-    let name = ''; try { name = await window.jhCoverDocx($('#jh-covertext').value); } catch (err) {}
-    b.textContent = name ? ('Opened ' + name + ' ✓') : 'Could not build .docx';
-    setTimeout(() => { b.disabled = false; b.innerHTML = o; }, 3000); };
+  $('#jh-pdf').onclick = async (e) => {
+    const b = e.currentTarget, o = b.innerHTML; b.disabled = true; b.textContent = 'Building…';
+    try { await window.jhCoverPdf($('#jh-covertext').value); } catch (err) {}
+    b.disabled = false; b.innerHTML = o; };
+  $('#jh-attach').onclick = async (e) => {
+    const b = e.currentTarget, o = b.innerHTML; b.disabled = true; b.textContent = 'Attaching…';
+    let r = {}; try { r = await window.jhCoverAttach($('#jh-covertext').value); } catch (err) {}
+    b.textContent = (r && r.ok) ? 'Attached ✓' : 'No upload field found';
+    setTimeout(() => { b.disabled = false; b.innerHTML = o; }, 2500); };
   $('#jh-applied').onclick = async (e) => {
     const b = e.currentTarget; b.disabled = true;
     try { await window.jhApplied(); } catch (err) {}
@@ -778,6 +787,8 @@ async def _arun(job: dict) -> None:
         page = await ctx.new_page() if attached else (
             ctx.pages[0] if ctx.pages else await ctx.new_page())
 
+        temp_files: list[str] = []                   # ephemeral cover-letter PDFs
+
         # ── Panel actions, wired to the injected buttons (async = no re-entrancy deadlock) ──
         async def _on_autofill(source):
             log = await _afill(page, vals)
@@ -789,13 +800,39 @@ async def _arun(job: dict) -> None:
             # claude CLI is blocking — run it off the event loop so the UI stays live.
             return await asyncio.get_event_loop().run_in_executor(None, _cover_letter, job)
 
-        async def _on_cover_docx(source, body):
-            def build():
-                path = _build_cover_docx(job, body or "")
-                _open_file(path)
-                import os
-                return os.path.basename(path)
-            return await asyncio.get_event_loop().run_in_executor(None, build)
+        async def _build_pdf(body):
+            path = await asyncio.get_event_loop().run_in_executor(
+                None, _build_cover_pdf, job, body or "")
+            temp_files.append(path)
+            return path
+
+        async def _on_cover_pdf(source, body):
+            # Build an ephemeral PDF and open it in a NEW TAB (Chrome's inline viewer).
+            path = await _build_pdf(body)
+            pg2 = await ctx.new_page()
+            await pg2.goto("file://" + path)
+            return True
+
+        async def _on_cover_attach(source, body):
+            # One-click: attach the PDF to the form's cover-letter / CV / document field.
+            import re as _re
+            path = await _build_pdf(body)
+            data = await page.evaluate(_JS_COLLECT)
+            files = data.get("files", [])
+
+            def rank(lbl):
+                for i, kw in enumerate(_UPLOAD_KW):
+                    if _re.search(kw, lbl):
+                        return i
+                return 99
+            cand = min(files, key=lambda f: rank(f["label"]), default=None)
+            if not cand or rank(cand["label"]) == 99:
+                return {"ok": False}
+            try:
+                await page.set_input_files(f"[data-jhf='{cand['i']}']", path)
+                return {"ok": True, "field": cand["label"][:28]}
+            except Exception:
+                return {"ok": False}
 
         async def _on_insert(source, text):
             return await _afill_cover_field(page, text or "")
@@ -830,7 +867,8 @@ async def _arun(job: dict) -> None:
 
         await page.expose_binding("jhAutofill", _on_autofill)
         await page.expose_binding("jhCover", _on_cover)
-        await page.expose_binding("jhCoverDocx", _on_cover_docx)
+        await page.expose_binding("jhCoverPdf", _on_cover_pdf)
+        await page.expose_binding("jhCoverAttach", _on_cover_attach)
         await page.expose_binding("jhInsertCover", _on_insert)
         await page.expose_binding("jhApplied", _on_applied)
         await page.expose_binding("jhQuestions", _on_questions)
@@ -867,6 +905,13 @@ async def _arun(job: dict) -> None:
                 await page.wait_for_timeout(500)     # alive until you close the window
         except Exception:
             pass
+        finally:
+            import os as _os                          # ephemeral: cover-letter PDFs vanish
+            for f in temp_files:
+                try:
+                    _os.unlink(f)
+                except OSError:
+                    pass
 
 
 def run(job: dict) -> None:

@@ -5,5 +5,5 @@ fastapi>=0.110
 uvicorn[standard]>=0.29
 python-multipart>=0.0.9
 pypdf>=4.0
-python-docx>=1.1          # cover-letter .docx export
+reportlab>=4.0            # cover-letter PDF (ephemeral, viewed in-browser)
 playwright>=1.40          # assisted autofill panel
