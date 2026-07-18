@@ -284,31 +284,103 @@ def _skill_match(job: dict) -> dict:
     return {"pct": round(100 * have / len(skills)), "have": have, "total": len(skills)}
 
 
-def _cover_letter(job: dict, timeout: int = 150) -> str:
-    """Draft a tailored cover letter from the resume + this JD via the claude CLI."""
+def _cover_letter(job: dict, timeout: int = 180) -> str:
+    """Draft a tailored cover letter (greeting → sign-off) from the FULL resume +
+    JD via the claude CLI, in the candidate's established voice/structure."""
     from ..core.config import profile, resume_text
     from ..match.llm import _run, claude_available
     if not claude_available():
         return ""
     p = profile()
     resume = resume_text()
+    company = job.get("company", "") or "the company"
     prompt = (
-        "Write a concise, specific cover letter (about 220-260 words) for this candidate "
-        "applying to the role below. Ground every claim in the RESUME — invent nothing. No "
-        "clichés, no 'I am writing to express my interest'. Open with a specific hook tied to "
-        "the role, cite 2-3 concrete resume achievements that match the requirements, then a "
-        "short close. Plain text, ready to paste, no placeholders — use the real company and "
-        "role. Sign off with the candidate's name.\n\n"
+        "You are writing a cover letter for the candidate below, applying to the role below. "
+        "Match this exact structure and voice — warm, specific, confident, first person, no "
+        "clichés and no 'I am writing to express my interest':\n\n"
+        "  • Start with 'Dear Hiring Team,'\n"
+        "  • Paragraph 1 — who they are (a new-grad engineer, B.S. Math/CS, ~3 years building "
+        "and shipping backend systems end to end) and their headline project as a hook.\n"
+        "  • Paragraph 2 — go deep on ONE project with CONCRETE metrics from the resume "
+        "(e.g. the ~30%/~65% ClassRec numbers) and explicitly connect that experience to what "
+        f"THIS {company} role/team actually does.\n"
+        "  • Paragraph 3 — breadth: 2-3 OTHER real projects from the resume, and their comfort "
+        "working WITH AI coding tools day to day (not around them). Show genuine curiosity.\n"
+        "  • Paragraph 4 — what they're looking for now (real ownership early, mentorship, room "
+        "to grow into meaningful impact) and a one-line ask to talk.\n"
+        "  • End with 'Thank you for your time and consideration.' then 'Sincerely,' on its own "
+        "line, then the candidate's name on the final line.\n\n"
+        "Ground EVERY claim in the resume — invent nothing, no placeholders, use the real "
+        "company and role. ~320-400 words. Output ONLY the letter text from the greeting to the "
+        "name — no letterhead, no date, no commentary.\n\n"
         f"CANDIDATE NAME: {p.get('name', '')}\n"
-        f"ROLE: {job.get('title', '')} at {job.get('company', '')}\n"
-        f"LOCATION: {job.get('location', '')}\n\n"
-        f"JOB DESCRIPTION:\n{(job.get('description') or '')[:3000]}\n\n"
-        f"RESUME:\n{resume[:4500]}\n"
+        f"ROLE: {job.get('title', '')} at {company}\n\n"
+        f"JOB DESCRIPTION:\n{(job.get('description') or '')[:3500]}\n\n"
+        f"RESUME (use these real projects + metrics):\n{resume}\n"
     )
     try:
         return _run(prompt, timeout).strip()
     except Exception:
         return ""
+
+
+def _build_cover_docx(job: dict, body: str) -> str:
+    """Assemble a .docx cover letter matching the candidate's format: name header,
+    contact line, date, recipient + Re line, then the letter body. Returns the path."""
+    import datetime
+    import re as _re
+
+    from docx import Document
+    from docx.shared import Pt
+
+    from ..core.config import DATA_DIR, profile
+    p = profile()
+    name = p.get("name", "") or "Applicant"
+    contact = "  |  ".join(x for x in [
+        p.get("location", ""), p.get("phone", ""), p.get("email", ""),
+        (p.get("linkedin", "") or "").replace("https://", "").replace("http://", ""),
+        (p.get("github", "") or "").replace("https://", "").replace("http://", ""),
+    ] if x)
+
+    doc = Document()
+    hdr = doc.add_paragraph()
+    run = hdr.add_run(name); run.bold = True; run.font.size = Pt(16)
+    doc.add_paragraph(contact).runs[0].font.size = Pt(9)
+    doc.add_paragraph()
+    doc.add_paragraph(datetime.date.today().strftime("%B %-d, %Y"))
+    doc.add_paragraph()
+    doc.add_paragraph("Hiring Team")
+    if job.get("company"):
+        doc.add_paragraph(job["company"])
+    if job.get("title"):
+        re_p = doc.add_paragraph(); re_p.add_run(f"Re: {job['title']}").bold = True
+    doc.add_paragraph()
+    for line in (body or "").split("\n"):
+        line = line.strip()
+        if line:
+            doc.add_paragraph(line)
+
+    out_dir = DATA_DIR / "cover_letters"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    safe = _re.sub(r"[^A-Za-z0-9]+", "_", f"{name}_Cover_Letter_{job.get('company','')}").strip("_")
+    path = str(out_dir / f"{safe}.docx")
+    doc.save(path)
+    return path
+
+
+def _open_file(path: str) -> None:
+    import subprocess
+    import sys
+    try:
+        if sys.platform == "darwin":
+            subprocess.Popen(["open", path])
+        elif sys.platform.startswith("win"):
+            import os
+            os.startfile(path)                       # type: ignore[attr-defined]
+        else:
+            subprocess.Popen(["xdg-open", path])
+    except Exception:
+        pass
 
 
 # Open-ended questions we CAN draft (essays), and ones we must never AI-answer
@@ -476,6 +548,7 @@ _PANEL_JS = r"""(data) => {
           <button id="jh-copy" class="jh-mini">Copy</button>
           <button id="jh-insert" class="jh-mini">Insert into form</button>
         </div>
+        <button id="jh-docx" class="jh-btn jh-outline" style="margin-top:8px">&#128196; Save &amp; open .docx</button>
       </div>
       <div class="jh-sep"></div>
       <div class="jh-label">Application questions</div>
@@ -524,6 +597,11 @@ _PANEL_JS = r"""(data) => {
     const ok = await window.jhInsertCover($('#jh-covertext').value);
     $('#jh-insert').textContent = ok ? 'Inserted ✓' : 'No field on page';
     setTimeout(() => $('#jh-insert').textContent = 'Insert into form', 1800); };
+  $('#jh-docx').onclick = async (e) => {
+    const b = e.currentTarget, o = b.innerHTML; b.disabled = true; b.textContent = 'Building .docx…';
+    let name = ''; try { name = await window.jhCoverDocx($('#jh-covertext').value); } catch (err) {}
+    b.textContent = name ? ('Opened ' + name + ' ✓') : 'Could not build .docx';
+    setTimeout(() => { b.disabled = false; b.innerHTML = o; }, 3000); };
   $('#jh-applied').onclick = async (e) => {
     const b = e.currentTarget; b.disabled = true;
     try { await window.jhApplied(); } catch (err) {}
@@ -711,6 +789,14 @@ async def _arun(job: dict) -> None:
             # claude CLI is blocking — run it off the event loop so the UI stays live.
             return await asyncio.get_event_loop().run_in_executor(None, _cover_letter, job)
 
+        async def _on_cover_docx(source, body):
+            def build():
+                path = _build_cover_docx(job, body or "")
+                _open_file(path)
+                import os
+                return os.path.basename(path)
+            return await asyncio.get_event_loop().run_in_executor(None, build)
+
         async def _on_insert(source, text):
             return await _afill_cover_field(page, text or "")
 
@@ -744,6 +830,7 @@ async def _arun(job: dict) -> None:
 
         await page.expose_binding("jhAutofill", _on_autofill)
         await page.expose_binding("jhCover", _on_cover)
+        await page.expose_binding("jhCoverDocx", _on_cover_docx)
         await page.expose_binding("jhInsertCover", _on_insert)
         await page.expose_binding("jhApplied", _on_applied)
         await page.expose_binding("jhQuestions", _on_questions)
