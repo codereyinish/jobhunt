@@ -456,6 +456,7 @@ a.bc-role:hover{color:var(--accent)}
 .cname{color:var(--muted);font-weight:560}
 .cname.loved{color:var(--red)}
 .rev-meta{color:var(--faint)}
+.rev-dupes{color:var(--amber);font-size:12px;margin-left:2px}
 .rev-sub .love{opacity:.5;margin-left:2px;font-size:12.5px}
 .rev-sub .love:hover,.rev-sub .love.on{opacity:1}
 .jheart{cursor:pointer;font-size:19px;line-height:1;user-select:none;flex-shrink:0;
@@ -1329,7 +1330,26 @@ def _table(rows, fitcol, loved: set, show_why: bool = False, base: dict | None =
     return search + head + "".join(body) + "</tbody></table>"
 
 
-def _review_cards(rows, loved: set, view: str) -> str:
+def _dedupe_roles(rows):
+    """Collapse the same role reposted across locations (same company + title) into
+    one card — keeps the first (highest-fit, since rows arrive fit-ordered) and
+    records the other locations. Returns (deduped_rows, {kept_id: [other locations]})."""
+    seen, order, dupes = {}, [], {}
+    for r in rows:
+        key = ((r["company"] or "").strip().lower(),
+               " ".join((r["title"] or "").lower().split()))
+        if key in seen:
+            kid = seen[key]
+            loc = "Remote" if r["remote"] else (r["location"] or "")
+            if loc and loc not in dupes.get(kid, []):
+                dupes.setdefault(kid, []).append(loc)
+        else:
+            seen[key] = r["id"]
+            order.append(r)
+    return order, dupes
+
+
+def _review_cards(rows, loved: set, view: str, dupes: dict | None = None) -> str:
     if not rows:
         msg = ("No apply-ready jobs in this call." if view == "apply"
                else "Nothing filtered out in this call.")
@@ -1399,6 +1419,12 @@ def _review_cards(rows, loved: set, view: str) -> str:
         else:
             role_html = (f"<a class=rev-role href='{_e(r['url'] or '#')}' target=_blank "
                          f"rel=noopener>{_e(r['title'])} &#8599;</a>")
+        others = (dupes or {}).get(r["id"], [])
+        dup_note = ""
+        if others:
+            shown = ", ".join(others[:3]) + (f" +{len(others) - 3} more" if len(others) > 3 else "")
+            dup_note = (f"<span class=rev-dupes title='same role also posted in these "
+                        f"locations'>&#8226; also in {_e(shown)}</span>")
         cards.append(
             f"<div class='{card_cls}'><div class=rev-head>"
             f"<span class=rev-fit>{afit}</span>{_tip(_FIT_TIP)}"
@@ -1407,7 +1433,7 @@ def _review_cards(rows, loved: set, view: str) -> str:
             f"<div class=rev-sub><span class=cname{' loved' if company in loved else ''}>"
             f"{_e(company)}</span>{comp_love}"
             f"<span class=rev-meta>&middot; {_TYPE_LABEL.get(r['company_type'], '—')} "
-            f"&middot; {_e(loc)}</span></div></div>"
+            f"&middot; {_e(loc)}</span>{dup_note}</div></div>"
             f"{ctl}</div>"
             f"<div class=rev-reason>{_e(a.get('reason', ''))}</div>"
             f"{dq_html}{actions}</div>"
@@ -1595,20 +1621,29 @@ def _render(tier: str, min_score: int, fresh: bool, sort: str,
 
     # Shared column filters apply to EVERY view. Counts are computed over the
     # view's population (before these filters) so the breakdown stays visible.
+    card_view = view in ("apply", "rejected")
     q = f"SELECT * FROM jobs WHERE {base_where}"
     p = list(base_p)
     q, p = _apply_filters(q, p, tier, ctype, company, locf, af)
-    q += order + f" LIMIT {_PAGE + 1} OFFSET {page * _PAGE}"
+    q += order
+    if not card_view:                                    # table paginates in SQL
+        q += f" LIMIT {_PAGE + 1} OFFSET {page * _PAGE}"
     with db.connect() as conn:
-        rows = conn.execute(q, p).fetchall()
+        fetched = conn.execute(q, p).fetchall()
         total = conn.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
         fresh_n = conn.execute(
             "SELECT COUNT(*) FROM jobs WHERE fetched_at >= datetime('now','-24 hours')"
         ).fetchone()[0]
         avail_states = _states_present(conn)
         dim_counts = _dim_counts(conn, base_where, list(base_p))
-    has_next = len(rows) > _PAGE
-    rows = rows[:_PAGE]
+    dupes = {}
+    if card_view:                                        # collapse same role across locations
+        fetched, dupes = _dedupe_roles(fetched)
+        has_next = len(fetched) > (page + 1) * _PAGE
+        rows = fetched[page * _PAGE:(page + 1) * _PAGE]
+    else:
+        has_next = len(fetched) > _PAGE
+        rows = fetched[:_PAGE]
     base = {"view": view, "tier": tier, "min_score": min_score,
             "fresh": 1 if fresh else 0, "sort": sort, "min_fit": min_fit,
             "ctype": ctype, "locf": locf, "af": af, "company": company,
@@ -1619,7 +1654,7 @@ def _render(tier: str, min_score: int, fresh: bool, sort: str,
         content = (tabs + _run_nav(cur_run, call_runs, base, view)
                    + _filter_bar(base, tier, ctype, locf, af, company, dim_counts,
                                  avail_states, sort)
-                   + _review_cards(rows, loved, view) + _pager(page, has_next, base))
+                   + _review_cards(rows, loved, view, dupes) + _pager(page, has_next, base))
     else:
         content = (tabs + _fetch_nav(cur_fetch, fetch_runs, base) + "<div class=panel>"
                    + _table(rows, fitcol, loved, False, base, tier, sort, ctype, locf, af,
