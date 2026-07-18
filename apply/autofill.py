@@ -48,6 +48,23 @@ def _profile_values() -> dict:
     }
 
 
+def _work_experience() -> list:
+    """Structured work-experience entries from profile.yaml, for the repeatable
+    'Work Experience' blocks on application forms."""
+    out = []
+    for e in (profile().get("work_experience") or []):
+        out.append({
+            "title": (e.get("title") or "").strip(),
+            "company": (e.get("company") or "").strip(),
+            "location": (e.get("location") or "").strip(),
+            "start": (e.get("start") or "").strip(),
+            "end": (e.get("end") or "").strip(),
+            "current": bool(e.get("current")),
+            "description": " ".join((e.get("description") or "").split()),
+        })
+    return out
+
+
 # concept -> label regexes (matched against label text, lowercased). ORDER MATTERS —
 # first match wins, so the specific address rules sit above the generic location/name.
 _TEXT_RULES = [
@@ -465,6 +482,10 @@ _PANEL_JS = r"""(data) => {
       <button id="jh-scan" class="jh-btn jh-outline">&#9906; Scan this page for questions</button>
       <div id="jh-qlist"></div>
       <div class="jh-sep"></div>
+      <div class="jh-label">Work experience</div>
+      <button id="jh-exp" class="jh-btn jh-outline">&#128188; Fill work experience</button>
+      <div id="jh-expstat" class="jh-stat"></div>
+      <div class="jh-sep"></div>
       <button id="jh-applied" class="jh-btn jh-done-btn">Mark applied &rarr;</button>
       <div class="jh-foot">Review every field before you submit — nothing is submitted for you.</div>
     </div>`;
@@ -547,6 +568,71 @@ _PANEL_JS = r"""(data) => {
       };
       list.appendChild(card);
     });
+    b.disabled = false; b.innerHTML = o;
+  };
+
+  // Fill repeatable "Work Experience" blocks from your saved entries.
+  function _lbl(el){
+    let s = '';
+    if (el.id){ try { const l = document.querySelector('label[for="' + CSS.escape(el.id) + '"]');
+      if (l) s += ' ' + l.innerText; } catch(e){} }
+    const anc = el.closest('label, .field, .form-group, [class*=field]');
+    if (anc) s += ' ' + (anc.innerText || '');
+    s += ' ' + (el.getAttribute('aria-label') || '') + ' ' + (el.name || '') + ' ' + (el.placeholder || '');
+    return s.replace(/\s+/g, ' ').trim().toLowerCase();
+  }
+  function _set(el, v){
+    if (!el || v == null || v === '') return;
+    el.focus(); el.value = v;
+    el.dispatchEvent(new Event('input', {bubbles: true}));
+    el.dispatchEvent(new Event('change', {bubbles: true}));
+  }
+  function _expBlocks(){
+    const ctrls = [...document.querySelectorAll('input, textarea, select')]
+      .filter(e => e.type !== 'hidden' && e.type !== 'file');
+    const blocks = []; let cur = null;
+    for (const el of ctrls){
+      const L = _lbl(el);
+      if (/job title|position title|role title|^title\b/.test(L)){ cur = {title: el, fields: []}; blocks.push(cur); }
+      if (cur) cur.fields.push({el, L});
+    }
+    return blocks;
+  }
+  async function fillExperience(entries){
+    if (!entries || !entries.length) return 0;
+    const addBtn = () => [...document.querySelectorAll('button, a')]
+      .find(b => /add another|add experience|add more|add position/i.test(b.textContent || ''));
+    let n = 0;
+    for (let i = 0; i < entries.length; i++){
+      let blocks = _expBlocks();
+      if (i >= blocks.length){ const a = addBtn(); if (a){ a.click(); await new Promise(r => setTimeout(r, 700)); blocks = _expBlocks(); } }
+      const blk = blocks[i]; if (!blk) break;
+      const e = entries[i];
+      _set(blk.title, e.title);
+      for (const {el, L} of blk.fields){
+        if (el === blk.title) continue;
+        if (/compan|employer|organi/.test(L)) _set(el, e.company);
+        else if (/\blocation\b|\bcity\b/.test(L)) _set(el, e.location);
+        else if (/from|start/.test(L)) _set(el, e.start);
+        else if (/\bto\b|end date|\bend\b/.test(L)){ if (!e.current) _set(el, e.end); }
+        else if (/role description|description|responsib|summary|about/.test(L)) _set(el, e.description);
+      }
+      if (e.current){
+        const cb = [...document.querySelectorAll('input[type=checkbox]')]
+          .find(x => /currently work here|current(ly)?|present|i work here/i.test(_lbl(x)));
+        if (cb && !cb.checked) cb.click();
+      }
+      n++;
+    }
+    return n;
+  }
+  $('#jh-exp').onclick = async (e) => {
+    const b = e.currentTarget, o = b.innerHTML; b.disabled = true; b.textContent = 'Filling…';
+    let ents = []; try { ents = await window.jhExperience(); } catch (err) {}
+    let n = 0; try { n = await fillExperience(ents); } catch (err) {}
+    $('#jh-expstat').textContent = n
+      ? ('✓ Filled ' + n + ' experience block' + (n == 1 ? '' : 's') + ' — set the dates + review')
+      : 'No work experience saved — add it in profile.yaml';
     b.disabled = false; b.innerHTML = o;
   };
 }"""
@@ -653,6 +739,9 @@ async def _arun(job: dict) -> None:
             except Exception:
                 return False
 
+        async def _on_experience(source):
+            return _work_experience()
+
         await page.expose_binding("jhAutofill", _on_autofill)
         await page.expose_binding("jhCover", _on_cover)
         await page.expose_binding("jhInsertCover", _on_insert)
@@ -660,6 +749,7 @@ async def _arun(job: dict) -> None:
         await page.expose_binding("jhQuestions", _on_questions)
         await page.expose_binding("jhAnswer", _on_answer)
         await page.expose_binding("jhInsertField", _on_insert_field)
+        await page.expose_binding("jhExperience", _on_experience)
 
         async def _inject():
             try:
