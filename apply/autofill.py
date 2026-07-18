@@ -499,26 +499,44 @@ _PANEL_JS = r"""(data) => {
 
 
 async def _launch(pw):
-    """Open a real, logged-in Google Chrome via a persistent profile the app owns,
-    so your Google/LinkedIn sessions carry over between runs. Falls back to the
-    built-in Chromium if Chrome isn't installed (or the profile is already open).
+    """Pick the best browser to drive, in order of "most like your real browser":
 
-    Returns (context, browser|None). browser is None for the persistent path — a
-    persistent context has no separate Browser object to close."""
+    1. ATTACH to a Chrome you already started with --remote-debugging-port (run the
+       chrome-debug helper) — the panel drops into your real, logged-in session.
+    2. LAUNCH your Google Chrome with a dedicated persistent profile — logins persist
+       across runs after a one-time sign-in.
+    3. Fall back to the bundled Chromium.
+
+    Returns (context, browser|None, attached). attached=True means we joined YOUR
+    Chrome, so we open a fresh tab and must never close the browser on exit."""
+    import os
+
     from ..core.config import DATA_DIR
-    profile_dir = DATA_DIR / "chrome-profile"          # dedicated, reused every run
+
+    # 1) Attach over CDP if something is listening (you ran the chrome-debug helper).
+    cdp = os.environ.get("JOBHUNT_CDP", "http://localhost:9222")
+    try:
+        browser = await pw.chromium.connect_over_cdp(cdp)
+        ctx = browser.contexts[0] if browser.contexts else await browser.new_context()
+        print(f"  ▶ attached to your running Chrome at {cdp}")
+        return ctx, browser, True
+    except Exception:
+        pass                                           # nothing listening → launch our own
+
+    # 2) Launch your Chrome with a dedicated persistent profile (login once, persists).
+    profile_dir = DATA_DIR / "chrome-profile"
     profile_dir.mkdir(parents=True, exist_ok=True)
     try:
         ctx = await pw.chromium.launch_persistent_context(
             str(profile_dir), channel="chrome", headless=False,
             no_viewport=True, args=["--start-maximized"])
-        print("  ▶ using your Google Chrome (persistent jobhunt profile)")
-        return ctx, None
+        print("  ▶ launched your Google Chrome (persistent jobhunt profile)")
+        return ctx, None, False
     except Exception as e:
         print(f"  (couldn't open your Chrome — {str(e)[:80]}… — using the built-in browser)")
         browser = await pw.chromium.launch(headless=False, args=["--start-maximized"])
         ctx = await browser.new_context(no_viewport=True)
-        return ctx, browser
+        return ctx, browser, False
 
 
 async def _arun(job: dict) -> None:
@@ -537,8 +555,10 @@ async def _arun(job: dict) -> None:
     print(f"  {url}\n")
 
     async with async_playwright() as pw:
-        ctx, _browser = await _launch(pw)
-        page = ctx.pages[0] if ctx.pages else await ctx.new_page()
+        ctx, _browser, attached = await _launch(pw)
+        # Attached to your Chrome → open a fresh tab (don't hijack an existing one).
+        page = await ctx.new_page() if attached else (
+            ctx.pages[0] if ctx.pages else await ctx.new_page())
 
         # ── Panel actions, wired to the injected buttons (async = no re-entrancy deadlock) ──
         async def _on_autofill(source):
