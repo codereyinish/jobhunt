@@ -35,6 +35,12 @@ def _profile_values() -> dict:
         "github": (p.get("github") or "").strip(),
         "portfolio": (p.get("portfolio") or "").strip(),
         "location": (p.get("location") or "").strip(),
+        "street": (p.get("address_line1") or p.get("address") or "").strip(),
+        "line2": (p.get("address_line2") or "").strip(),
+        "city": (p.get("city") or "").strip(),
+        "state": (p.get("state") or "").strip(),
+        "zip": (p.get("zip") or p.get("postal_code") or "").strip(),
+        "country": (p.get("country") or "United States").strip(),
         "resume_path": (p.get("resume_path") or "").strip(),
         # yes = authorized to work now (OPT); needs sponsorship in the future.
         "authorized": "yes",
@@ -42,18 +48,41 @@ def _profile_values() -> dict:
     }
 
 
-# concept -> label regexes (matched against label text, lowercased)
+# concept -> label regexes (matched against label text, lowercased). ORDER MATTERS —
+# first match wins, so the specific address rules sit above the generic location/name.
 _TEXT_RULES = [
     ("email", r"e-?mail"),
     ("phone", r"phone|mobile|cell"),
     ("linkedin", r"linkedin"),
     ("github", r"github"),
     ("portfolio", r"portfolio|website|personal site|personal url"),
+    ("line2", r"address line ?2|address 2|\bapt\b|\bsuite\b|\bunit\b|apartment"),
+    ("street", r"address line ?1|address 1|street address|mailing address|^\s*address\b|\bstreet\b"),
+    ("zip", r"postal code|zip ?code|\bzip\b|postcode|post code"),
+    ("city", r"\bcity\b|\btown\b"),
+    ("state", r"\bstate\b|province|region"),
+    ("country", r"\bcountry\b"),
     ("first", r"first name|given name|legal first"),
     ("last", r"last name|surname|family name|legal last"),
-    ("location", r"\b(current )?(location|city)\b|where do you (live|reside)|your city"),
+    ("location", r"where do you (live|reside)|current location|residence|your location"),
     ("name", r"^\s*(full |your )?name\b|full legal name"),
 ]
+
+# US state name ↔ abbreviation, so a State <select> matches whether your profile
+# stores "New York" or "NY", and whichever the form's options use.
+_STATE_FULL = {
+    "AL": "Alabama", "AK": "Alaska", "AZ": "Arizona", "AR": "Arkansas", "CA": "California",
+    "CO": "Colorado", "CT": "Connecticut", "DE": "Delaware", "FL": "Florida", "GA": "Georgia",
+    "HI": "Hawaii", "ID": "Idaho", "IL": "Illinois", "IN": "Indiana", "IA": "Iowa",
+    "KS": "Kansas", "KY": "Kentucky", "LA": "Louisiana", "ME": "Maine", "MD": "Maryland",
+    "MA": "Massachusetts", "MI": "Michigan", "MN": "Minnesota", "MS": "Mississippi",
+    "MO": "Missouri", "MT": "Montana", "NE": "Nebraska", "NV": "Nevada", "NH": "New Hampshire",
+    "NJ": "New Jersey", "NM": "New Mexico", "NY": "New York", "NC": "North Carolina",
+    "ND": "North Dakota", "OH": "Ohio", "OK": "Oklahoma", "OR": "Oregon", "PA": "Pennsylvania",
+    "RI": "Rhode Island", "SC": "South Carolina", "SD": "South Dakota", "TN": "Tennessee",
+    "TX": "Texas", "UT": "Utah", "VT": "Vermont", "VA": "Virginia", "WA": "Washington",
+    "WV": "West Virginia", "WI": "Wisconsin", "WY": "Wyoming", "DC": "Washington DC",
+}
 
 # Never treat these as fillable text — they're custom dropdowns/essays where a
 # wrong free-text answer does damage. If a label hits one, we leave it for you.
@@ -132,6 +161,28 @@ def _choose_option(options: list[str], want: str) -> str | None:
     return None
 
 
+def _choose_named(options: list[str], want: str) -> str | None:
+    """Pick a dropdown option by name — handles State (full name ↔ abbreviation)
+    and Country, regardless of which form the profile or the form uses."""
+    want = (want or "").strip()
+    if not want:
+        return None
+    cands = {want.lower()}
+    if want.upper() in _STATE_FULL:                    # profile has "NY" → also try "New York"
+        cands.add(_STATE_FULL[want.upper()].lower())
+    for ab, full in _STATE_FULL.items():               # profile has "New York" → also try "NY"
+        if full.lower() == want.lower():
+            cands.add(ab.lower())
+    for o in options:
+        if o.strip().lower() in cands:
+            return o
+    for o in options:                                  # loose: startswith any candidate
+        ol = o.strip().lower()
+        if any(ol.startswith(c) for c in cands):
+            return o
+    return None
+
+
 def _plan(data: dict, vals: dict) -> tuple[list, list]:
     """Pure decision step: from collected fields decide what to fill. Returns
     (actions, log) where each action is (kind, selector, arg). Shared by the sync
@@ -144,9 +195,12 @@ def _plan(data: dict, vals: dict) -> tuple[list, list]:
             continue
         if f["tag"] == "select":
             concept = _match(label, _CHOICE_RULES) or _match(label, _TEXT_RULES)
-            if concept not in ("authorized", "sponsorship"):
+            if concept in ("authorized", "sponsorship"):
+                opt = _choose_option(f["options"], vals.get(concept, ""))
+            elif concept in ("state", "country"):
+                opt = _choose_named(f["options"], vals.get(concept, ""))
+            else:
                 continue
-            opt = _choose_option(f["options"], vals.get(concept, ""))
             if opt:
                 actions.append(("select", sel, opt))
                 log.append(f"  ✓ [{label[:40]}] → {opt}")
