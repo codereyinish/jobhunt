@@ -1016,7 +1016,7 @@ function _msgToast(msg){
   setTimeout(function(){t.classList.add('hide');setTimeout(function(){t.remove();},400);},4200);
 }
 function openApply(el){   // click the role in apply-ready → open the app's browser + panel
-  _msgToast('Opening the application in a new window with the autofill panel…');
+  _msgToast('Opening the application in a Chrome tab with the autofill panel…');
   fetch('/apply/'+el.dataset.i,{method:'POST'}).then(function(r){return r.json();})
     .then(function(d){ if(!d.ok) _msgToast(d.error||'This job has no application URL.'); })
     .catch(function(){ _msgToast('Could not open the application.'); });

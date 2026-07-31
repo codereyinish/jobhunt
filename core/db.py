@@ -55,8 +55,9 @@ CREATE INDEX IF NOT EXISTS idx_jobs_score  ON jobs(score);
 @contextmanager
 def connect():
     DATA_DIR.mkdir(exist_ok=True)
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=30)      # wait out a poll's write burst
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")          # the UI can read while poll writes
     try:
         conn.executescript(SCHEMA)
         for col in ("fit INTEGER", "company_type TEXT", "afit INTEGER",
