@@ -127,27 +127,48 @@ def _skippable(label: str) -> bool:
     return bool(re.search(_SKIP, label))
 
 
-_JS_COLLECT = r"""() => {
-  const els = [...document.querySelectorAll('input, textarea, select')];
+_JS_COLLECT = r"""(a) => {
+  // `a.start`/`a.fstart` offset the indices so every frame on the page contributes
+  // to one global numbering — see _acollect, which walks frames and stitches these.
+  const vis = (n) => !!n && (n.offsetParent !== null || n.getClientRects().length > 0);
+  const els = [...document.querySelectorAll(
+    'input, textarea, select, [contenteditable=""], [contenteditable="true"]')];
   const out = [];
   els.forEach((el) => {
     const type = (el.type || '').toLowerCase();
-    if (['hidden', 'submit', 'button', 'reset', 'image', 'checkbox', 'radio'].includes(type)) return;
-    const off = el.offsetParent === null && el.tagName !== 'SELECT';
-    if (off) return;                                   // skip hidden fields
-    const idx = out.length;
+    if (['hidden', 'submit', 'button', 'reset', 'image',
+         'password'].includes(type)) return;             // never read/touch credentials
+    const editable = el.hasAttribute('contenteditable');
+    const choice = type === 'radio' || type === 'checkbox';
+    // a radio's OWN option text ("Yes"), kept apart from the group's question text
+    let own = '', ownEl = null;
+    if (choice) {
+      if (el.id) {
+        try { ownEl = document.querySelector('label[for="' + CSS.escape(el.id) + '"]'); }
+        catch (e) {}
+      }
+      if (!ownEl) ownEl = el.closest('label');
+      own = (((ownEl ? ownEl.innerText : '') || el.value || '') + '')
+              .replace(/\s+/g, ' ').trim().toLowerCase().slice(0, 60);
+    }
+    // Choice inputs are routinely styled invisible with a visible label standing in,
+    // so judge them by the label too rather than dropping them outright.
+    if (choice ? !(vis(el) || vis(ownEl)) : (!vis(el) && el.tagName !== 'SELECT')) return;
+    const idx = a.start + out.length;
     el.setAttribute('data-jh', idx);
     let label = '';
     if (el.id) {
       try { const l = document.querySelector('label[for="' + CSS.escape(el.id) + '"]');
             if (l) label += ' ' + l.innerText; } catch (e) {}
     }
-    const anc = el.closest('label, .field, .form-group, .application-field, [class*=field]');
+    // For a radio, the useful question lives ABOVE its own <label> — step out past it.
+    const from = choice ? (el.closest('fieldset, .field, .form-group, [class*=field]') || el) : el;
+    const anc = from.closest('label, fieldset, .field, .form-group, .application-field, [class*=field]');
     if (anc) label += ' ' + (anc.innerText || '');
     label += ' ' + (el.getAttribute('aria-label') || '') + ' ' +
              (el.name || '') + ' ' + (el.placeholder || '');
     out.push({
-      idx, tag: el.tagName.toLowerCase(), type,
+      idx, tag: editable ? 'editable' : el.tagName.toLowerCase(), type, own,
       label: label.replace(/\s+/g, ' ').trim().toLowerCase().slice(0, 200),
       options: el.tagName === 'SELECT' ? [...el.options].map(o => o.text) : []
     });
@@ -155,14 +176,35 @@ _JS_COLLECT = r"""() => {
   // resume/CV file inputs, tracked separately
   const files = [];
   document.querySelectorAll('input[type=file]').forEach((el, i) => {
-    el.setAttribute('data-jhf', i);
+    const fi = a.fstart + i;
+    el.setAttribute('data-jhf', fi);
     const anc = el.closest('label, .field, [class*=field]');
     const lab = ((anc ? anc.innerText : '') + ' ' + (el.name || '') + ' ' +
                  (el.getAttribute('aria-label') || '')).toLowerCase();
-    files.push({ i, label: lab });
+    files.push({ i: fi, label: lab });
   });
   return { fields: out, files };
 }"""
+
+
+async def _acollect(page) -> tuple[list, list, dict, dict]:
+    """Scrape EVERY frame, not just the top document. Greenhouse/Lever forms are
+    commonly embedded in an <iframe> on a company's careers page, where a main-frame
+    query finds nothing at all. Indices are global across frames; the two owner maps
+    say which frame holds a given field/file so actions go to the right document."""
+    fields, files, own_f, own_u = [], [], {}, {}
+    for fr in page.frames:
+        try:
+            d = await fr.evaluate(_JS_COLLECT, {"start": len(fields), "fstart": len(files)})
+        except Exception:
+            continue                                   # cross-origin or detached frame
+        for f in d["fields"]:
+            own_f[f["idx"]] = fr
+            fields.append(f)
+        for u in d["files"]:
+            own_u[u["i"]] = fr
+            files.append(u)
+    return fields, files, own_f, own_u
 
 
 def _choose_option(options: list[str], want: str) -> str | None:
@@ -200,15 +242,29 @@ def _choose_named(options: list[str], want: str) -> str | None:
     return None
 
 
-def _plan(data: dict, vals: dict) -> tuple[list, list]:
+def _plan(fields: list, files: list, vals: dict) -> tuple[list, list]:
     """Pure decision step: from collected fields decide what to fill. Returns
-    (actions, log) where each action is (kind, selector, arg). Shared by the sync
+    (actions, log) where each action is (kind, idx, selector, arg). Shared by the sync
     and async executors so the matching logic never drifts."""
     actions, log = [], []
-    for f in data["fields"]:
+    done_groups = set()                                # one answer per radio group
+    for f in fields:
         sel = f"[data-jh='{f['idx']}']"
         label = f["label"]
         if _skippable(label):
+            continue
+        if f["type"] in ("radio", "checkbox"):
+            # The group's question decides WHICH answer; this input's own text ("Yes")
+            # decides whether IT is the one to tick.
+            concept = _match(label, _CHOICE_RULES)
+            want = vals.get(concept, "") if concept else ""
+            key = (f.get("group") or label[:60], concept)
+            if not want or key in done_groups:
+                continue
+            if _choose_option([f.get("own") or ""], want):
+                actions.append(("check", f["idx"], sel, None))
+                log.append(f"  ✓ [{label[:40]}] → {f.get('own')}")
+                done_groups.add(key)
             continue
         if f["tag"] == "select":
             concept = _match(label, _CHOICE_RULES) or _match(label, _TEXT_RULES)
@@ -219,54 +275,47 @@ def _plan(data: dict, vals: dict) -> tuple[list, list]:
             else:
                 continue
             if opt:
-                actions.append(("select", sel, opt))
+                actions.append(("select", f["idx"], sel, opt))
                 log.append(f"  ✓ [{label[:40]}] → {opt}")
             continue
         concept = _match(label, _TEXT_RULES)
         val = vals.get(concept, "") if concept else ""
         if not val:
             continue
-        actions.append(("fill", sel, val))
+        actions.append(("fill", f["idx"], sel, val))
         log.append(f"  ✓ [{label[:40]}] → {val}")
 
     resume = vals.get("resume_path")
-    if resume and data["files"]:
-        target = next((f for f in data["files"] if "resume" in f["label"] or "cv" in f["label"]),
-                      data["files"][0])
-        actions.append(("file", f"[data-jhf='{target['i']}']", resume))
+    if resume and files:
+        target = next((u for u in files if "resume" in u["label"] or "cv" in u["label"]),
+                      files[0])
+        actions.append(("file", target["i"], f"[data-jhf='{target['i']}']", resume))
         log.append(f"  ✓ resume uploaded ({resume})")
     elif not resume:
         log.append("  ⚠ no resume_path in profile.yaml — upload it yourself")
     return actions, log
 
 
-def fill(page, vals: dict) -> list[str]:
-    """Sync filler (CLI / ad-hoc use). Fills everything recognized; returns a log."""
-    actions, log = _plan(page.evaluate(_JS_COLLECT), vals)
-    for kind, sel, arg in actions:
-        try:
-            if kind == "fill":
-                page.fill(sel, arg)
-            elif kind == "select":
-                page.select_option(sel, label=arg)
-            elif kind == "file":
-                page.set_input_files(sel, arg)
-        except Exception:
-            pass
-    return log
-
-
 async def _afill(page, vals: dict) -> list[str]:
-    """Async filler — safe to call from an exposed-binding callback."""
-    actions, log = _plan(await page.evaluate(_JS_COLLECT), vals)
-    for kind, sel, arg in actions:
+    """Async filler — safe to call from an exposed-binding callback. Each action is
+    replayed in the frame that actually owns the element."""
+    fields, files, own_f, own_u = await _acollect(page)
+    actions, log = _plan(fields, files, vals)
+    for kind, idx, sel, arg in actions:
+        fr = (own_u if kind == "file" else own_f).get(idx) or page.main_frame
         try:
             if kind == "fill":
-                await page.fill(sel, arg)
+                await fr.fill(sel, arg)
             elif kind == "select":
-                await page.select_option(sel, label=arg)
+                await fr.select_option(sel, label=arg)
             elif kind == "file":
-                await page.set_input_files(sel, arg)
+                await fr.set_input_files(sel, arg)
+            elif kind == "check":
+                try:
+                    await fr.check(sel, timeout=3000)
+                except Exception:
+                    # styled-invisible radio: click its label / the element itself
+                    await fr.evaluate(_CHECK_JS, sel)
         except Exception:
             pass
     return log
@@ -284,9 +333,10 @@ def _skill_match(job: dict) -> dict:
     return {"pct": round(100 * have / len(skills)), "have": have, "total": len(skills)}
 
 
-def _cover_letter(job: dict, timeout: int = 180) -> str:
+def _cover_letter(job: dict, hint: str = "", timeout: int = 180) -> str:
     """Draft a tailored cover letter (greeting → sign-off) from the FULL resume +
-    JD via the claude CLI, in the candidate's established voice/structure."""
+    JD via the claude CLI, in the candidate's established voice/structure. `hint` is
+    your steer for this one letter — it outranks the default structure below."""
     from ..core.config import profile, resume_text
     from ..match.llm import _run, claude_available
     if not claude_available():
@@ -313,7 +363,9 @@ def _cover_letter(job: dict, timeout: int = 180) -> str:
         "Ground EVERY claim in the resume — invent nothing, no placeholders, use the real "
         "company and role. ~320-400 words. Output ONLY the letter text from the greeting to the "
         "name — no letterhead, no date, no commentary.\n\n"
-        f"CANDIDATE NAME: {p.get('name', '')}\n"
+        + (f"CANDIDATE'S GUIDANCE — follow this closely. Where it conflicts with the structure "
+           f"or length above, THE GUIDANCE WINS:\n{hint}\n\n" if hint.strip() else "")
+        + f"CANDIDATE NAME: {p.get('name', '')}\n"
         f"ROLE: {job.get('title', '')} at {company}\n\n"
         f"JOB DESCRIPTION:\n{(job.get('description') or '')[:3500]}\n\n"
         f"RESUME (use these real projects + metrics):\n{resume}\n"
@@ -426,26 +478,60 @@ def _answer_question(job: dict, question: str, hint: str = "", timeout: int = 15
         return ""
 
 
-_INSERT_JS = r"""(a) => {
+# React (and Vue) track an input's value through the prototype's native setter. Assigning
+# el.value directly leaves that tracker stale, so the framework decides "nothing changed"
+# and wipes the text on the next render. Going through the native setter is what makes a
+# programmatic insert look like a real edit. Shared by the answer and cover-letter inserts.
+_SET_VALUE_JS = r"""
+  const jhSet = (el, text) => {
+    if (el.isContentEditable) { el.textContent = text; }
+    else {
+      const proto = (el.tagName === 'TEXTAREA') ? HTMLTextAreaElement.prototype
+                                                : HTMLInputElement.prototype;
+      const d = Object.getOwnPropertyDescriptor(proto, 'value');
+      if (d && d.set) d.set.call(el, text); else el.value = text;
+    }
+    el.dispatchEvent(new Event('input', {bubbles: true}));
+    el.dispatchEvent(new Event('change', {bubbles: true}));
+  };
+"""
+
+_INSERT_JS = r"""(a) => {""" + _SET_VALUE_JS + r"""
   const el = document.querySelector(`[data-jh='${a.idx}']`);
   if (!el) return false;
-  el.focus(); el.value = a.text;
-  el.dispatchEvent(new Event('input', {bubbles: true}));
-  el.dispatchEvent(new Event('change', {bubbles: true}));
+  el.focus(); jhSet(el, a.text);
   return true;
 }"""
 
 
-_COVER_JS = r"""(text) => {
-  const els = [...document.querySelectorAll('textarea, input[type=text]')];
+# A radio styled invisible can't be clicked by Playwright — click what the user sees.
+_CHECK_JS = r"""(sel) => {
+  const el = document.querySelector(sel);
+  if (!el) return false;
+  let lab = null;
+  if (el.id) { try { lab = document.querySelector('label[for="' + CSS.escape(el.id) + '"]'); }
+               catch (e) {} }
+  if (!lab) lab = el.closest('label');
+  if (lab && lab.getClientRects().length) { lab.click(); return true; }
+  el.click();
+  if (!el.checked) {                                   // last resort: force the state
+    el.checked = true;
+    el.dispatchEvent(new Event('input', {bubbles: true}));
+    el.dispatchEvent(new Event('change', {bubbles: true}));
+  }
+  return true;
+}"""
+
+
+_COVER_JS = r"""(text) => {""" + _SET_VALUE_JS + r"""
+  const els = [...document.querySelectorAll(
+    'textarea, input[type=text], [contenteditable=""], [contenteditable="true"]')];
   for (const el of els) {
     const anc = el.closest('label, .field, [class*=field]');
     const lab = ((anc ? anc.innerText : '') + ' ' + (el.name || '') + ' ' +
                  (el.getAttribute('aria-label') || '') + ' ' + (el.placeholder || '')).toLowerCase();
     if (lab.includes('cover')) {
-      el.focus(); el.value = text;
-      el.dispatchEvent(new Event('input', {bubbles: true}));
-      el.dispatchEvent(new Event('change', {bubbles: true}));
+      el.focus(); jhSet(el, text);
       return true;
     }
   }
@@ -472,7 +558,18 @@ _PANEL_JS = r"""(data) => {
     BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
   #jh-panel { position: fixed; top: 18px; right: 18px; width: 340px; z-index: 2147483647;
     background: #fff; border: 1px solid #e6e9ef; border-radius: 16px;
-    box-shadow: 0 18px 60px rgba(20,30,60,.22); overflow: hidden; color: #1a2233; }
+    box-shadow: 0 18px 60px rgba(20,30,60,.22); overflow: hidden; color: #1a2233;
+    transition: transform .22s ease, opacity .22s ease; }
+  #jh-panel.jh-away { transform: translateX(calc(100% + 26px)); opacity: 0;
+    pointer-events: none; }
+  #jh-handle { position: fixed; top: 18px; right: 0; z-index: 2147483647; display: none;
+    align-items: center; gap: 7px; background: #fff; border: 1px solid #e6e9ef;
+    border-right: none; border-radius: 12px 0 0 12px; padding: 9px 13px 9px 11px;
+    cursor: pointer; box-shadow: 0 10px 32px rgba(20,30,60,.18); font-size: 13px;
+    font-weight: 650; color: #2563eb; font-family: -apple-system, BlinkMacSystemFont,
+    'Segoe UI', Roboto, sans-serif; }
+  #jh-handle.jh-on { display: flex; }
+  #jh-handle:hover { background: #f5f8ff; }
   .jh-head { display: flex; align-items: center; justify-content: space-between;
     padding: 13px 16px; border-bottom: 1px solid #eef1f6; }
   .jh-brand { display: flex; align-items: center; gap: 7px; font-weight: 700; font-size: 15px; }
@@ -481,6 +578,8 @@ _PANEL_JS = r"""(data) => {
     color: #fff; font-size: 12px; }
   .jh-x { cursor: pointer; color: #9aa4b5; font-size: 21px; line-height: 1; padding: 0 4px; }
   .jh-x:hover { color: #556; }
+  .jh-headbtns { display: flex; align-items: center; gap: 2px; }
+  #jh-hide { font-size: 23px; font-weight: 600; }
   .jh-body { padding: 14px 16px 16px; }
   .jh-jobline { font-size: 12px; color: #6b7688; margin-bottom: 12px; white-space: nowrap;
     overflow: hidden; text-overflow: ellipsis; }
@@ -523,6 +622,12 @@ _PANEL_JS = r"""(data) => {
   .jh-qhint:focus { outline: none; border-color: #3b82f6; }
   .jh-qgen { width: 100%; }
   #jh-panel .jh-cover { max-height: 220px; }
+  .jh-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
+  .jh-chip { border: 1px solid #e0e5ee; background: #fbfcfe; border-radius: 999px;
+    padding: 4px 10px; font-size: 11.5px; color: #3d4757; cursor: pointer;
+    font-family: inherit; }
+  .jh-chip:hover { background: #eef4ff; border-color: #cfe0fd; color: #2563eb; }
+  .jh-chip.jh-chip-on { background: #2563eb; border-color: #2563eb; color: #fff; }
   `;
   document.head.appendChild(style);
 
@@ -531,7 +636,10 @@ _PANEL_JS = r"""(data) => {
   wrap.innerHTML = `
     <div class="jh-head">
       <div class="jh-brand"><span class="jh-bolt">&#9889;</span> jobhunt</div>
-      <span id="jh-close" class="jh-x">&times;</span>
+      <div class="jh-headbtns">
+        <span id="jh-hide" class="jh-x" title="Hide the panel (it parks at the edge)">&rsaquo;</span>
+        <span id="jh-close" class="jh-x" title="Close for good">&times;</span>
+      </div>
     </div>
     <div class="jh-body">
       <div class="jh-jobline">${data.title || ''}${data.company ? ' &middot; ' + data.company : ''}</div>
@@ -543,6 +651,9 @@ _PANEL_JS = r"""(data) => {
       <div id="jh-fillstat" class="jh-stat"></div>
       <div class="jh-sep"></div>
       <div class="jh-label">Cover letter</div>
+      <input id="jh-coverhint" class="jh-qhint"
+             placeholder="Steer this letter (optional) — e.g. shorter, more technical">
+      <div class="jh-chips" id="jh-coverchips"></div>
       <button id="jh-cover" class="jh-btn jh-outline">&#9998; Generate with AI</button>
       <div id="jh-coverwrap" class="jh-coverwrap">
         <textarea id="jh-covertext" class="jh-cover" rows="8" placeholder="Your cover letter will appear here…"></textarea>
@@ -577,8 +688,21 @@ _PANEL_JS = r"""(data) => {
   inner.style.cssText = 'width:36px;height:36px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;';
   inner.textContent = pct + '%'; ring.textContent = ''; ring.appendChild(inner);
 
+  // Park it at the right edge instead of destroying it — read the page underneath,
+  // then click the tab to bring everything back exactly as you left it.
+  const handle = document.createElement('div');
+  handle.id = 'jh-handle';
+  handle.innerHTML = '<span class="jh-bolt">&#9889;</span> jobhunt';
+  document.body.appendChild(handle);
+  const show = (on) => {
+    wrap.classList.toggle('jh-away', !on);
+    handle.classList.toggle('jh-on', !on);
+  };
+  handle.onclick = () => show(true);
+
   const $ = s => wrap.querySelector(s);
-  $('#jh-close').onclick = () => { wrap.remove(); };
+  $('#jh-hide').onclick = () => show(false);
+  $('#jh-close').onclick = () => { wrap.remove(); handle.remove(); };
   $('#jh-autofill').onclick = async (e) => {
     const b = e.currentTarget, o = b.innerHTML; b.disabled = true; b.textContent = 'Filling…';
     try { const r = await window.jhAutofill();
@@ -587,13 +711,37 @@ _PANEL_JS = r"""(data) => {
     } catch (err) { $('#jh-fillstat').textContent = 'Autofill failed'; }
     b.disabled = false; b.innerHTML = o;
   };
+  // Quick steers — toggle any number, type your own, or both. They're sent as guidance
+  // that outranks the default structure, so "two paragraphs" really does win.
+  const COVER_PRESETS = [
+    ['Shorter', 'Keep it to about 200 words in three tight paragraphs.'],
+    ['More technical', 'Go deeper on technical specifics — architecture, tools, trade-offs.'],
+    ['Less formal', 'Warmer and more conversational; drop the corporate stiffness.'],
+    ['Lead with best project', 'Open with my single strongest, most relevant project as the hook.'],
+    ['Emphasize AI/LLM work', 'Foreground my AI/LLM and agent work ahead of everything else.'],
+  ];
+  const chipbox = $('#jh-coverchips');
+  COVER_PRESETS.forEach(([label, text]) => {
+    const c = document.createElement('button');
+    c.className = 'jh-chip'; c.textContent = label; c.dataset.p = text;
+    c.onclick = () => c.classList.toggle('jh-chip-on');
+    chipbox.appendChild(c);
+  });
+  const coverHint = () => {
+    const picked = Array.from(chipbox.querySelectorAll('.jh-chip-on')).map(c => c.dataset.p);
+    return picked.concat([$('#jh-coverhint').value.trim()]).filter(Boolean).join(' ');
+  };
+
   $('#jh-cover').onclick = async (e) => {
     const b = e.currentTarget, o = b.innerHTML; b.disabled = true; b.textContent = 'Writing… ~30s';
     $('#jh-coverwrap').style.display = 'block';
-    try { const t = await window.jhCover();
+    let ok = false;
+    try { const t = await window.jhCover(coverHint());
+      ok = !!t;
       $('#jh-covertext').value = t || 'Could not generate — is the claude CLI available?';
     } catch (err) { $('#jh-covertext').value = 'Could not generate the cover letter.'; }
-    b.disabled = false; b.innerHTML = o;
+    b.disabled = false;
+    b.innerHTML = ok ? '&#8635; Regenerate with these notes' : o;   // iterate on the steer
   };
   $('#jh-copy').onclick = () => { const t = $('#jh-covertext'); t.select();
     try { document.execCommand('copy'); } catch (e) {}
@@ -737,6 +885,7 @@ async def _launch(pw):
     Returns (context, browser|None, attached). attached=True means we joined YOUR
     Chrome, so we open a fresh tab and must never close the browser on exit."""
     import os
+    from urllib.parse import urlsplit
 
     from ..core.config import DATA_DIR
 
@@ -751,12 +900,19 @@ async def _launch(pw):
         pass                                           # nothing listening → launch our own
 
     # 2) Launch your Chrome with a dedicated persistent profile (login once, persists).
+    #    Opened WITH the debug port, so the next apply attaches at step 1 and lands in a
+    #    new TAB of this window instead of stacking up another window.
+    port = urlsplit(cdp).port or 9222
     profile_dir = DATA_DIR / "chrome-profile"
     profile_dir.mkdir(parents=True, exist_ok=True)
     try:
         ctx = await pw.chromium.launch_persistent_context(
-            str(profile_dir), channel="chrome", headless=False,
-            no_viewport=True, args=["--start-maximized"])
+            str(profile_dir), channel="chrome", headless=False, no_viewport=True,
+            args=["--start-maximized", f"--remote-debugging-port={port}"],
+            # Playwright's defaults kill Chrome's password manager: --enable-automation
+            # suppresses the "Save password?" prompt and --password-store=basic keeps it
+            # out of the macOS Keychain. Drop both so logins are typed once, not every time.
+            ignore_default_args=["--enable-automation", "--password-store=basic"])
         print("  ▶ launched your Google Chrome (persistent jobhunt profile)")
         return ctx, None, False
     except Exception as e:
@@ -788,6 +944,7 @@ async def _arun(job: dict) -> None:
             ctx.pages[0] if ctx.pages else await ctx.new_page())
 
         temp_files: list[str] = []                   # ephemeral cover-letter PDFs
+        q_frames: dict = {}                          # question idx → the frame holding it
 
         # ── Panel actions, wired to the injected buttons (async = no re-entrancy deadlock) ──
         async def _on_autofill(source):
@@ -796,9 +953,10 @@ async def _arun(job: dict) -> None:
                 _mark_drafted(job["id"])
             return {"count": len(log), "log": log}
 
-        async def _on_cover(source):
+        async def _on_cover(source, hint=""):
             # claude CLI is blocking — run it off the event loop so the UI stays live.
-            return await asyncio.get_event_loop().run_in_executor(None, _cover_letter, job)
+            return await asyncio.get_event_loop().run_in_executor(
+                None, _cover_letter, job, hint or "")
 
         async def _build_pdf(body):
             path = await asyncio.get_event_loop().run_in_executor(
@@ -843,10 +1001,13 @@ async def _arun(job: dict) -> None:
             return True
 
         async def _on_questions(source):
-            data = await page.evaluate(_JS_COLLECT)
+            fields, _files, own_f, _own_u = await _acollect(page)
+            q_frames.clear()
+            q_frames.update(own_f)                     # remember where each answer goes
             out = []
-            for f in data["fields"]:
-                is_text = f["tag"] == "textarea" or (f["tag"] == "input" and f["type"] in ("text", ""))
+            for f in fields:
+                is_text = (f["tag"] in ("textarea", "editable")
+                           or (f["tag"] == "input" and f["type"] in ("text", "")))
                 if is_text and _answerable(f["label"]):
                     out.append({"idx": f["idx"], "label": f["label"]})
             return out
@@ -857,8 +1018,9 @@ async def _arun(job: dict) -> None:
                 None, _answer_question, job, question or "", hint or "")
 
         async def _on_insert_field(source, idx, text):
+            fr = q_frames.get(idx) or page.main_frame
             try:
-                return bool(await page.evaluate(_INSERT_JS, {"idx": idx, "text": text or ""}))
+                return bool(await fr.evaluate(_INSERT_JS, {"idx": idx, "text": text or ""}))
             except Exception:
                 return False
 
@@ -898,7 +1060,7 @@ async def _arun(job: dict) -> None:
 
         await _inject()
         print("▶ Panel loaded — use it to autofill, draft a cover letter, and mark applied.")
-        print("  ⚠ REVIEW EVERY FIELD before you submit. Close the window when done.\n")
+        print("  ⚠ REVIEW EVERY FIELD before you submit. Close the tab when done.\n")
 
         try:
             while True:
